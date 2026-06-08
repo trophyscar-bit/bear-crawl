@@ -179,8 +179,8 @@ func _prop_stations() -> Array:
 func _portal_stations() -> Array:
 	# Two candidate looks for the backrooms boss-portal — walk up and compare.
 	return [
-		{"title": "PORTAL  A  —  blocky stone", "kind": "portal", "tex": "res://assets/portal_backrooms.png", "open": true},
-		{"title": "PORTAL  B  —  craggy stone", "kind": "portal", "tex": "res://assets/portal_backrooms_b.png", "open": true},
+		{"title": "PORTAL  B  —  CHOSEN", "kind": "portal", "tex": "res://assets/portal_backrooms_b.png", "open": true},
+		{"title": "PORTAL  A  (old)", "kind": "portal", "tex": "res://assets/portal_backrooms.png", "open": true},
 	]
 
 func _build_levels_grid() -> Vector2:
