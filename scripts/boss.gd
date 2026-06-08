@@ -305,6 +305,7 @@ func _begin_death() -> void:
 	_death_time = 0.0
 	# Boss drops a juicy 5 fluff
 	MetaSave.add_fluff(5)
+	MetaSave.add_cotton(1)   # bosses are the Cotton source (Workshop premium currency)
 	RunState.stats_fluff_earned += 5
 	var ap := get_node_or_null("AnimationPlayer")
 	if ap:

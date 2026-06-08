@@ -379,6 +379,7 @@ func _begin_death() -> void:
 	_death_origin = position
 	_death_time = 0.0
 	MetaSave.add_fluff(5)
+	MetaSave.add_cotton(1)   # bosses are the Cotton source (Workshop premium currency)
 	RunState.stats_fluff_earned += 5
 	var rig := get_node_or_null("Rig")
 	if rig:

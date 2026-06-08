@@ -82,6 +82,11 @@ func reset_run() -> void:
 	speed_mult = 1.0
 	bonus_projectiles = 0
 	back_shot = false
+	# Workshop meta-upgrades — a permanent head start that run upgrades stack onto.
+	# (Max HP via more_plush + Move Speed via faster_feet are applied in player.gd.)
+	dmg_mult += 0.05 * float(MetaSave.upgrade_level("sharper_crust"))
+	cooldown_mult *= pow(0.96, float(MetaSave.upgrade_level("hot_oven")))
+	crit_chance += 0.03 * float(MetaSave.upgrade_level("sharp_eye"))
 	light_boost = 1
 	enemy_bright = 1
 	backrooms_pack = 5

@@ -16,10 +16,12 @@ var weapon_unlocks: Dictionary = {
 	"bomb":    false,
 }
 var upgrades: Dictionary = {
-	"more_plush":     0,  # +1 starting HP per level
-	"sharper_crust":  0,  # +1 starting pizza damage per level
-	"faster_feet":    0,  # +5% starting move speed per level
-	"lucky_start":    0,  # +1 starting weapon-charge bonus per level (gets a bomb at run start)
+	"more_plush":     0,  # +1 max HP per level
+	"sharper_crust":  0,  # +5% damage per level
+	"faster_feet":    0,  # +4% move speed per level
+	"hot_oven":       0,  # +4% fire rate per level
+	"sharp_eye":      0,  # +3% crit chance per level
+	"greedy_paws":    0,  # +12% fluff drop per level
 }
 
 # Costs ramp per level: index [0] = cost for level 1, [1] for level 2, etc.
@@ -30,11 +32,30 @@ const WEAPON_DATA: Dictionary = {
 }
 
 const UPGRADE_DATA: Dictionary = {
-	"more_plush":     {"name": "MORE PLUSH",     "desc": "+1 max HP at run start",         "costs": [30, 80],       "max": 2},
-	"sharper_crust":  {"name": "SHARPER CRUST",  "desc": "+1 pizza damage at run start",   "costs": [90],           "max": 1},
-	"faster_feet":    {"name": "FASTER FEET",    "desc": "+5% move speed at run start",    "costs": [20, 45, 80],   "max": 3},
-	"lucky_start":    {"name": "LUCKY START",    "desc": "+1 starting bomb per level",     "costs": [25, 55, 100],  "max": 3},
+	"more_plush":     {"name": "MORE PLUSH",    "desc": "+1 Max HP",        "per": "+1 HP",   "costs": [30, 70, 130, 210, 320], "max": 5},
+	"sharper_crust":  {"name": "SHARPER CRUST", "desc": "+5% Damage",       "per": "+5%",     "costs": [40, 90, 160, 260, 400], "max": 5},
+	"faster_feet":    {"name": "FASTER FEET",   "desc": "+4% Move Speed",   "per": "+4%",     "costs": [25, 55, 100, 160, 240], "max": 5},
+	"hot_oven":       {"name": "HOT OVEN",      "desc": "+4% Fire Rate",    "per": "+4%",     "costs": [35, 80, 140, 220, 330], "max": 5},
+	"sharp_eye":      {"name": "SHARP EYE",     "desc": "+3% Crit Chance",  "per": "+3%",     "costs": [30, 70, 130, 210, 320], "max": 5},
+	"greedy_paws":    {"name": "GREEDY PAWS",   "desc": "+12% Fluff drops", "per": "+12%",    "costs": [40, 90, 150, 230, 340], "max": 5},
 }
+
+# Total Fluff sunk into stat tracks so far (for the Reset / refund button).
+func total_fluff_spent() -> int:
+	var spent: int = 0
+	for id in UPGRADE_DATA.keys():
+		var costs: Array = (UPGRADE_DATA[id] as Dictionary).get("costs", [])
+		var lvl: int = upgrade_level(id)
+		for i in mini(lvl, costs.size()):
+			spent += int(costs[i])
+	return spent
+
+# Refund every stat upgrade and return the Fluff. Weapon (Cotton) unlocks are kept.
+func reset_upgrades() -> void:
+	total_fluff += total_fluff_spent()
+	for id in upgrades.keys():
+		upgrades[id] = 0
+	save()
 
 func _ready() -> void:
 	load_save()

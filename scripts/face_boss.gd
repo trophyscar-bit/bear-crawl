@@ -341,6 +341,7 @@ func _begin_death() -> void:
 		puff.lifetime = randf_range(1.0, 1.6)
 		get_parent().add_child(puff)
 	MetaSave.add_fluff(5)
+	MetaSave.add_cotton(1)   # bosses are the Cotton source (Workshop premium currency)
 	RunState.stats_fluff_earned += 5
 	var pl := get_tree().get_first_node_in_group("player")
 	if pl is Node2D:

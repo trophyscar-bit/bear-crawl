@@ -819,6 +819,9 @@ func _begin_death() -> void:
 	if pl and pl.has_method("notify_killed_enemy"):
 		pl.notify_killed_enemy()
 	var fluff_drop: int = 1
+	var greed: int = MetaSave.upgrade_level("greedy_paws")   # Workshop: +12%/lvl bonus fluff
+	if greed > 0 and randf() < 0.12 * float(greed):
+		fluff_drop += 1
 	MetaSave.add_fluff(fluff_drop)
 	RunState.stats_fluff_earned += fluff_drop
 	# Old special-weapon pickups (bomb/scatter/homing) only exist in the legacy
