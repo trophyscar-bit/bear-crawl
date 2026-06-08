@@ -1367,21 +1367,17 @@ func _retry_run() -> void:
 
 # ── dev: weapon testing ──────────────────────────────────────────────────────
 func dev_set_weapon(idx: int) -> void:
-	# Equip a specific archetype (fresh, level 0) so you can test it directly.
+	# Equip a specific archetype (fresh, Lv1) so you can test it directly.
 	var arch: Array = ArpgState.ARCHETYPES
 	if idx < 0 or idx >= arch.size():
 		return
-	var w: Dictionary = arch[idx].duplicate(true)
-	w["rarity"] = 0
-	w["lvl"] = 0
-	w["score"] = ArpgState._score(w)
-	ArpgState.weapon = w
-	ArpgState.emit_signal("weapon_changed", w)
+	ArpgState.weapon = ArpgState._build_weapon(arch[idx], 1, 0)
+	ArpgState.emit_signal("weapon_changed", ArpgState.weapon)
 	ArpgState.emit_signal("stats_changed")
 
-func dev_upgrade_weapon(id: String) -> void:
-	# Apply a weapon upgrade for free (same effect as buying it at the merchant).
-	ArpgState.buy({"id": id, "weapon_upgrade": true, "cost": 0})
+func dev_upgrade_weapon(_id: String) -> void:
+	# Free weapon level-up (any of the dev upgrade buttons just levels it).
+	ArpgState.buy({"id": "w_level", "weapon_upgrade": true, "cost": 0})
 
 func dev_weapon_summary() -> String:
 	var w: Dictionary = ArpgState.weapon
@@ -1471,6 +1467,7 @@ func _toggle_stats() -> void:
 	_stat_line(vb, "─────────────", "")
 	var rar: int = int(w.get("rarity", 0))
 	_stat_line(vb, "Weapon", "%s %s" % [ArpgState.RARITY_NAMES[rar], w.get("name", "—")], ArpgState.RARITY_COLORS[rar])
+	_stat_line(vb, "   Level", "%d / %d" % [int(w.get("lvl", 1)), ArpgState.WEAPON_MAX_LVL])
 	_stat_line(vb, "   Projectiles", "%d" % ArpgState.weapon_count())
 	_stat_line(vb, "   Pierce", "%d" % int(w.get("pierce", 0)))
 	if bool(w.get("ball", false)):
@@ -2136,11 +2133,7 @@ func _stat_row(vb: VBoxContainer, name: String, text: String, val: float, ref: f
 
 func _close_weapon_popup(layer: CanvasLayer, area: Area2D, take: bool, item: Dictionary) -> void:
 	if take:
-		ArpgState.weapon = item
-		ArpgState.emit_signal("weapon_changed", item)
-		ArpgState.emit_signal("stats_changed")
-		var rc: Color = ArpgState.RARITY_COLORS[clampi(int(item.get("rarity", 0)), 0, 3)]
-		ArpgState.emit_signal("toast", "Equipped %s" % String(item.get("name", "Weapon")), rc)
+		ArpgState.try_equip(item)   # carries half your current weapon level
 	else:
 		# Decline = sell the drop for coins (you get paid for passing on it).
 		var sell: int = ArpgState.weapon_sell_value(item)
@@ -2309,6 +2302,7 @@ func _upgrade_preview(opt: Dictionary) -> String:
 	var w: Dictionary = ArpgState.weapon
 	var cur_dmg: int = ArpgState.weapon_damage()
 	match String(opt.get("id", "")):
+		"w_level":    return "Weapon  Lv %d → %d" % [int(w.get("lvl", 1)), int(w.get("lvl", 1)) + 1]
 		"w_dmg":      return "Damage  %d → %d" % [cur_dmg, cur_dmg + 1]
 		"w_dmg2":     return "Damage  %d → %d" % [cur_dmg, cur_dmg + 2]
 		"dmg":        return "Damage  %d → %d" % [cur_dmg, int(ceil(float(w.get("dmg", 1)) * (ArpgState.dmg_mult + 0.10)))]
@@ -2330,6 +2324,14 @@ func _levelup_change(opt: Dictionary) -> Array:
 	var cur_dmg: int = ArpgState.weapon_damage()
 	var hp_now: int = int(_player.max_health) if is_instance_valid(_player) and "max_health" in _player else 0
 	match String(opt.get("id", "")):
+		"w_level":
+			var arch: Dictionary = ArpgState._archetype_by_name(String(w.get("name", "")))
+			var nxt: Dictionary = ArpgState._build_weapon(arch, int(w.get("lvl", 1)) + 1, int(w.get("rarity", 0)))
+			if int(nxt.get("count", 1)) > int(w.get("count", 1)):
+				return ["shots", "%d" % (int(nxt.get("count", 1)) + ArpgState.bonus_projectiles)]
+			if float(nxt.get("cooldown", 1.0)) < float(w.get("cooldown", 1.0)) - 0.0001:
+				return ["rate", "%.2f/s" % (1.0 / maxf(0.06, float(nxt.get("cooldown", 0.34)) * ArpgState.cooldown_mult))]
+			return ["dmg", "%d" % int(ceil(float(nxt.get("dmg", 1)) * ArpgState.dmg_mult))]
 		"w_dmg":      return ["dmg", "%d" % (cur_dmg + 1)]
 		"w_dmg2":     return ["dmg", "%d" % (cur_dmg + 2)]
 		"dmg":        return ["dmg", "%d" % int(ceil(float(w.get("dmg", 1)) * (ArpgState.dmg_mult + 0.10)))]

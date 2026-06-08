@@ -68,6 +68,115 @@ const ARCHETYPES := [
 	{"name": "Bouncy Blaster",   "count": 1, "cooldown": 0.26, "speed": 620.0, "dmg": 4,  "color": Color(1, 1, 1), "ball": true, "bounces": 9, "weight": 0.33},
 ]
 
+const WEAPON_MAX_LVL: int = 8
+
+# Each weapon LEVELS UP along a fixed path (Vampire-Survivors style). Index 0 is
+# the Lv1→2 step … index 6 is Lv7→8. The last step is an "evolved" capstone.
+const LEVEL_PATHS: Dictionary = {
+	"Pepperoni Slicer": [
+		{"dmg": 3, "label": "+3 Damage"},
+		{"pierce": 1, "label": "+1 Pierce"},
+		{"cd": 0.88, "label": "+14% Fire Rate"},
+		{"count": 1, "label": "+1 Projectile"},
+		{"dmg": 4, "label": "+4 Damage"},
+		{"pierce": 1, "label": "+1 Pierce"},
+		{"dmg": 6, "count": 1, "label": "EVOLVED: +6 Dmg, +1 Shot"},
+	],
+	"Triple Crust": [
+		{"dmg": 2, "label": "+2 Damage"},
+		{"count": 1, "label": "+1 Projectile"},
+		{"cd": 0.90, "label": "+11% Fire Rate"},
+		{"dmg": 2, "label": "+2 Damage"},
+		{"pierce": 1, "label": "+1 Pierce"},
+		{"count": 1, "label": "+1 Projectile"},
+		{"dmg": 3, "count": 1, "label": "EVOLVED: +3 Dmg, +1 Shot"},
+	],
+	"Cheese Spike": [
+		{"cd": 0.90, "label": "+11% Fire Rate"},
+		{"dmg": 2, "label": "+2 Damage"},
+		{"pierce": 1, "label": "+1 Pierce"},
+		{"cd": 0.88, "label": "+14% Fire Rate"},
+		{"dmg": 3, "label": "+3 Damage"},
+		{"pierce": 1, "label": "+1 Pierce"},
+		{"pierce": 2, "cd": 0.85, "label": "EVOLVED: +2 Pierce, faster"},
+	],
+	"Deep-Dish Cannon": [
+		{"dmg": 4, "label": "+4 Damage"},
+		{"pierce": 1, "label": "+1 Pierce"},
+		{"dmg": 5, "label": "+5 Damage"},
+		{"cd": 0.90, "label": "+11% Fire Rate"},
+		{"dmg": 6, "label": "+6 Damage"},
+		{"count": 1, "label": "+1 Projectile"},
+		{"dmg": 10, "pierce": 1, "label": "EVOLVED: +10 Dmg, +1 Pierce"},
+	],
+	"Frost Calzone": [
+		{"dmg": 2, "label": "+2 Damage"},
+		{"count": 1, "label": "+1 Projectile"},
+		{"dmg": 2, "label": "+2 Damage"},
+		{"cd": 0.90, "label": "+11% Fire Rate"},
+		{"count": 1, "label": "+1 Projectile"},
+		{"dmg": 3, "label": "+3 Damage"},
+		{"count": 1, "dmg": 3, "label": "EVOLVED: +1 Shot, +3 Dmg"},
+	],
+	"Bouncy Blaster": [
+		{"dmg": 2, "label": "+2 Damage"},
+		{"bounces": 3, "label": "+3 Bounces"},
+		{"cd": 0.90, "label": "+11% Fire Rate"},
+		{"dmg": 2, "label": "+2 Damage"},
+		{"bounces": 3, "label": "+3 Bounces"},
+		{"count": 1, "label": "+1 Projectile"},
+		{"count": 1, "dmg": 4, "bounces": 4, "label": "EVOLVED: +1 Shot, +4 Dmg"},
+	],
+}
+
+func _archetype_by_name(n: String) -> Dictionary:
+	for a in ARCHETYPES:
+		if String(a.get("name", "")) == n:
+			return a
+	return ARCHETYPES[0]
+
+# Build a weapon dict from its archetype at a given level (applies the level path)
+# + rarity. Depth scales the BASE damage so deeper drops feel stronger.
+func _build_weapon(arch: Dictionary, lvl: int, rar: int) -> Dictionary:
+	var w: Dictionary = arch.duplicate(true)
+	lvl = clampi(lvl, 1, WEAPON_MAX_LVL)
+	var dmult: float = 1.0 + 0.07 * float(depth - 1)
+	var dmg: float = float(w.get("dmg", 1)) * dmult
+	var cd: float = float(w.get("cooldown", 0.34))
+	var count: int = int(w.get("count", 1))
+	var pierce: int = int(w.get("pierce", 0))
+	var bounces: int = int(w.get("bounces", 0))
+	var path: Array = LEVEL_PATHS.get(String(w.get("name", "")), [])
+	for i in mini(lvl - 1, path.size()):
+		var step: Dictionary = path[i]
+		dmg += float(step.get("dmg", 0))
+		if step.has("cd"):
+			cd *= float(step["cd"])
+		count += int(step.get("count", 0))
+		pierce += int(step.get("pierce", 0))
+		bounces += int(step.get("bounces", 0))
+	w["dmg"] = int(ceil(dmg))
+	w["cooldown"] = maxf(0.07, cd)
+	w["count"] = count
+	w["pierce"] = pierce
+	if bool(w.get("ball", false)) or bounces > 0:
+		w["bounces"] = bounces
+	w["lvl"] = lvl
+	w["rarity"] = rar
+	w["maxlvl"] = WEAPON_MAX_LVL
+	w["score"] = _score(w)
+	return w
+
+# Label for the NEXT level-up of the equipped weapon ("" if maxed).
+func weapon_next_label() -> String:
+	var lvl: int = int(weapon.get("lvl", 1))
+	if lvl >= WEAPON_MAX_LVL:
+		return ""
+	var path: Array = LEVEL_PATHS.get(String(weapon.get("name", "")), [])
+	if lvl - 1 < path.size():
+		return String((path[lvl - 1] as Dictionary).get("label", ""))
+	return ""
+
 func reset_run() -> void:
 	active = true
 	depth = 1
@@ -133,10 +242,7 @@ func rolled_crit() -> bool:
 	return randf() < crit_chance
 
 func _starter_weapon() -> Dictionary:
-	var w: Dictionary = ARCHETYPES[0].duplicate(true)
-	w["rarity"] = 0
-	w["score"] = _score(w)
-	return w
+	return _build_weapon(ARCHETYPES[0], 1, 0)
 
 # ── loot generation ────────────────────────────────────────────────────────
 func roll_rarity() -> int:
@@ -162,16 +268,12 @@ func _pick_archetype() -> Dictionary:
 	return ARCHETYPES[0]
 
 func roll_weapon() -> Dictionary:
-	var w: Dictionary = _pick_archetype().duplicate(true)
+	# Rarity now means HOW FAR ALONG ITS LEVEL PATH a dropped weapon starts —
+	# a Rare drop is "already Lv3", not just a common with bigger numbers.
+	var arch: Dictionary = _pick_archetype()
 	var rar: int = roll_rarity()
-	var rmult: float = 1.0 + 0.14 * float(rar)                # rarity scaling (toned down)
-	var dmult: float = 1.0 + 0.07 * float(depth - 1)          # depth scaling (toned down)
-	w["dmg"] = int(ceil(float(w["dmg"]) * rmult * dmult))
-	w["speed"] = float(w["speed"]) * (1.0 + 0.04 * float(rar))
-	w["cooldown"] = maxf(0.08, float(w["cooldown"]) * (1.0 - 0.06 * float(rar)))
-	w["rarity"] = rar
-	w["score"] = _score(w)
-	return w
+	var lvl: int = mini(WEAPON_MAX_LVL, 1 + rar)
+	return _build_weapon(arch, lvl, rar)
 
 func _score(w: Dictionary) -> float:
 	# Rough DPS-ish value so "is this drop better?" is answerable.
@@ -201,17 +303,17 @@ func weapon_eval(w: Dictionary) -> Dictionary:
 	}
 
 func try_equip(item: Dictionary) -> bool:
-	var better: bool = weapon.is_empty() or float(item.get("score", 0.0)) >= float(weapon.get("score", 0.0))
-	if better:
-		weapon = item
-		emit_signal("weapon_changed", weapon)
-		var col: Color = RARITY_COLORS[int(item.get("rarity", 0))]
-		emit_signal("toast", "%s %s  equipped" % [RARITY_NAMES[int(item.get("rarity", 0))], item.get("name", "Weapon")], col)
-	else:
-		gold += 3
-		emit_signal("toast", "+3 gold (sold weaker drop)", Color(1.0, 0.85, 0.4))
-		emit_signal("stats_changed")
-	return better
+	# Swapping isn't a hard reset: the new weapon CARRIES HALF your current weapon
+	# level (so an evolved Lv8 doesn't drop you back to a raw Lv1 on a type change).
+	var old_lvl: int = int(weapon.get("lvl", 1)) if not weapon.is_empty() else 1
+	var carried: int = maxi(int(item.get("lvl", 1)), int(floor(float(old_lvl) * 0.5)))
+	var arch: Dictionary = _archetype_by_name(String(item.get("name", "")))
+	weapon = _build_weapon(arch, carried, int(item.get("rarity", 0)))
+	emit_signal("weapon_changed", weapon)
+	var col: Color = RARITY_COLORS[int(weapon.get("rarity", 0))]
+	emit_signal("toast", "%s  Lv %d  equipped" % [weapon.get("name", "Weapon"), carried], col)
+	emit_signal("stats_changed")
+	return true
 
 # ── kill / xp / gold ────────────────────────────────────────────────────────
 func notify_kill(pos: Vector2) -> void:
@@ -258,56 +360,46 @@ func boss_hp() -> int:
 # weapon dict directly and bumps its level (so the next one costs more). Swapping
 # weapons starts fresh — invest in the one you want to keep.
 func weapon_upgrade_options() -> Array:
+	# One option now: LEVEL UP the equipped weapon along its fixed path.
+	var lvl: int = int(weapon.get("lvl", 1))
+	if lvl >= WEAPON_MAX_LVL:
+		return []
 	var wcol: Color = weapon.get("color", Color(1.0, 0.8, 0.4))
-	var opts: Array = [
-		{"id": "w_dmg",      "name": "Sharpen",     "desc": "+1 Damage",     "color": wcol},
-		{"id": "w_firerate", "name": "Quick Hands", "desc": "-10% Cooldown", "color": wcol},
-		{"id": "w_pierce",   "name": "Piercing",    "desc": "+1 Pierce",     "color": wcol},
-	]
-	if bool(weapon.get("ball", false)):
-		opts.append({"id": "w_bounce", "name": "Super Bounce", "desc": "+3 Bounces", "color": wcol})
-		# The Bouncy Blaster is a weak-but-spammy speed weapon — give it a meatier
-		# damage path so you can actually build it up.
-		opts.append({"id": "w_dmg2", "name": "Dense Core", "desc": "+2 Damage", "color": wcol})
-	elif int(weapon.get("count_ups", 0)) < 1:
-		# +1 Projectile is a huge multiplicative DPS spike — offer it at most ONCE per
-		# weapon (stacking it to 4-5 shots was what broke the game).
-		opts.append({"id": "w_count", "name": "Multi-Throw", "desc": "+1 Projectile (one-time)", "color": wcol})
-	return opts
+	return [{
+		"id": "w_level",
+		"name": "%s  Lv %d" % [String(weapon.get("name", "Weapon")), lvl + 1],
+		"desc": weapon_next_label(),
+		"color": wcol,
+	}]
 
 func _weapon_upgrade_cost() -> int:
-	# Kept in the same ballpark as global run upgrades (was ~2x and ramped too
-	# hard, so nobody invested in their weapon).
-	var lvl: int = int(weapon.get("lvl", 0))
+	# Scales with the weapon's current level (later levels cost more).
+	var lvl: int = int(weapon.get("lvl", 1))
 	return int(round((18.0 + lvl * 6.0) * (1.0 + 0.15 * float(depth - 1))))
 
 func generate_shop(_count: int = 5) -> Array:
 	var offers: Array = []
-	# 2 upgrades for the current weapon (badged "WEAPON").
+	# One offer to LEVEL UP the current weapon (badged "WEAPON"), if not maxed.
 	var wopts: Array = weapon_upgrade_options()
-	wopts.shuffle()
-	var wcost: int = _weapon_upgrade_cost()
-	for i in mini(2, wopts.size()):
-		var wo: Dictionary = wopts[i].duplicate(true)
+	if not wopts.is_empty():
+		var wo: Dictionary = (wopts[0] as Dictionary).duplicate(true)
 		wo["weapon_upgrade"] = true
-		wo["cost"] = wcost
-		if String(wo.get("id", "")) == "w_count":
-			wo["cost"] = int(round(float(wcost) * 1.8))   # premium price on the +projectile
+		wo["cost"] = _weapon_upgrade_cost()
 		wo["weapon_name"] = String(weapon.get("name", "Weapon"))
 		offers.append(wo)
-	# 3 global run upgrades.
+	# global run upgrades fill the rest.
 	var pool: Array = [
 		{"id": "maxhp",     "name": "Reinforced Stuffing", "desc": "+4 Max HP",          "color": Color(0.4, 0.9, 0.5)},
 		{"id": "dmg",       "name": "Sharper Toppings",     "desc": "+10% Damage (all)",  "color": Color(1.0, 0.5, 0.4)},
 		{"id": "firerate",  "name": "Greased Oven",         "desc": "+12% Fire Rate (all)", "color": Color(1.0, 0.85, 0.4)},
 		{"id": "crit",      "name": "Spicy Pepperoni",      "desc": "+7% Crit Chance",   "color": Color(1.0, 0.4, 0.7)},
 		{"id": "speed",     "name": "Roller Skates",        "desc": "+8% Move Speed",     "color": Color(0.5, 0.8, 1.0)},
-		{"id": "weapon",    "name": "Mystery Box",          "desc": "New random weapon — Rare+ (resets weapon upgrades)", "color": Color(0.85, 0.85, 0.9)},
+		{"id": "weapon",    "name": "Mystery Box",          "desc": "New random weapon type — Rare+ (keeps half your level)", "color": Color(0.85, 0.85, 0.9)},
 	]
 	if not back_shot:
 		pool.append({"id": "back_shot", "name": "Back Shot", "desc": "Also fire out the back", "color": Color(0.7, 0.5, 1.0)})
 	pool.shuffle()
-	for i in mini(3, pool.size()):
+	for i in mini(4, pool.size()):
 		var item: Dictionary = pool[i].duplicate(true)
 		item["cost"] = _shop_cost(String(item["id"]))
 		offers.append(item)
@@ -332,17 +424,13 @@ func buy(item: Dictionary) -> bool:
 func apply_upgrade(item: Dictionary) -> void:
 	var id: String = String(item.get("id", ""))
 	if bool(item.get("weapon_upgrade", false)):
-		match id:
-			"w_dmg":      weapon["dmg"] = int(weapon.get("dmg", 1)) + 1
-			"w_dmg2":     weapon["dmg"] = int(weapon.get("dmg", 1)) + 2
-			"w_firerate": weapon["cooldown"] = maxf(0.07, float(weapon.get("cooldown", 0.34)) * 0.9)
-			"w_pierce":   weapon["pierce"] = int(weapon.get("pierce", 0)) + 1
-			"w_count":
-				weapon["count"] = int(weapon.get("count", 1)) + 1
-				weapon["count_ups"] = int(weapon.get("count_ups", 0)) + 1
-			"w_bounce":   weapon["bounces"] = int(weapon.get("bounces", 1)) + 3
-		weapon["lvl"] = int(weapon.get("lvl", 0)) + 1
-		emit_signal("weapon_changed", weapon)
+		if id == "w_level":
+			# Rebuild the weapon one level higher along its path.
+			var arch: Dictionary = _archetype_by_name(String(weapon.get("name", "")))
+			weapon = _build_weapon(arch, int(weapon.get("lvl", 1)) + 1, int(weapon.get("rarity", 0)))
+			emit_signal("weapon_changed", weapon)
+		emit_signal("stats_changed")
+		return
 	else:
 		match id:
 			"maxhp":     bonus_maxhp += 4
@@ -352,16 +440,15 @@ func apply_upgrade(item: Dictionary) -> void:
 			"speed":     speed_mult += 0.08
 			"back_shot": back_shot = true
 			"weapon":
-				# Mystery Box: a fresh random weapon, but guaranteed Rare or better so
-				# it's a real gamble on TYPE (not a downgrade in rarity). It does reset
-				# weapon-specific upgrades since it's a brand-new weapon.
+				# Mystery Box: a fresh random weapon TYPE, guaranteed Rare+. Carries
+				# half your current level (try_equip rules) so it's a gamble on TYPE,
+				# not a progress wipe.
 				var rolled: Dictionary = roll_weapon()
 				for _try in 8:
 					if int(rolled.get("rarity", 0)) >= 2:
 						break
 					rolled = roll_weapon()
-				weapon = rolled
-				emit_signal("weapon_changed", weapon)
+				try_equip(rolled)
 	emit_signal("stats_changed")
 
 # Three random upgrade choices shown on level-up (mix of global boons + upgrades
@@ -376,10 +463,16 @@ func level_up_options() -> Array:
 	]
 	if not back_shot:
 		pool.append({"id": "back_shot", "name": "Back Shot", "desc": "Also fire backward", "color": Color(0.7, 0.5, 1.0)})
-	# Upgrades specific to the equipped weapon.
-	for wo in weapon_upgrade_options():
-		var w2: Dictionary = (wo as Dictionary).duplicate(true)
-		w2["weapon_upgrade"] = true
-		pool.append(w2)
 	pool.shuffle()
-	return pool.slice(0, mini(3, pool.size()))
+	# The weapon level-up is always offered (when not maxed) as one of the 3 cards.
+	var out: Array = []
+	var wopts: Array = weapon_upgrade_options()
+	if not wopts.is_empty():
+		var w2: Dictionary = (wopts[0] as Dictionary).duplicate(true)
+		w2["weapon_upgrade"] = true
+		out.append(w2)
+		out.append_array(pool.slice(0, 2))
+	else:
+		out.append_array(pool.slice(0, 3))
+	out.shuffle()
+	return out

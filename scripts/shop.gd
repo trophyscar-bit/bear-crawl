@@ -245,13 +245,9 @@ func _hover(card: Control, on: bool) -> void:
 func _buy(index: int) -> void:
 	if ArpgState.buy(_offers[index]):
 		var b: Button = _buy_buttons[index]
-		# Weapon upgrades are repeatable — refresh price; globals sell out.
-		if bool(_offers[index].get("weapon_upgrade", false)):
-			_offers[index]["cost"] = ArpgState._weapon_upgrade_cost()
-			b.text = "⛁ %d" % int(_offers[index]["cost"])
-		else:
-			b.text = "✓ SOLD"
-			b.disabled = true
+		# Everything (including the one weapon level-up) sells out per visit.
+		b.text = "✓ SOLD"
+		b.disabled = true
 		Juice.shake(0.05)
 		_refresh()
 
