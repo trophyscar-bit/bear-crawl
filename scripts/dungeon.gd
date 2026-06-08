@@ -1183,8 +1183,7 @@ func _on_exit() -> void:
 	if _cleared:
 		return
 	if not _boss_dead:
-		_on_toast("Defeat the dungeon guardian first!", Color(1.0, 0.5, 0.4))
-		return
+		return   # exit stays shut until the boss dies — no nag toast
 	_cleared = true
 	ArpgState.descend()
 	get_tree().change_scene_to_file("res://scenes/shop.tscn")
