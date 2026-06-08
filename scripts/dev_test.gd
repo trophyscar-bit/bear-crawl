@@ -182,6 +182,9 @@ func _build_levels_grid() -> Vector2:
 		{"title": "FOREST", "floor": "res://assets/forest_kit/texture only/Forest Tileset - Free/grass.png", "layout": "trees"},
 		{"title": "FIELD OF WHEAT (Lv 10)", "floor": "res://assets/fx/biome/wheat_floor.png", "layout": "wheat"},
 		{"title": "DUNGEON (Kenney tiles)", "floor": "res://assets/fx/biome/dng_floor.png", "wall": "res://assets/fx/biome/dng_wall.png", "layout": "dungeon"},
+		{"title": "DUNGEON · CAVE  (alt)", "floor": "res://assets/texlib/cave_floor.png", "wall": "res://assets/texlib/cave_wall.png", "layout": "dungeon", "tex_note": "Cave Floor 2  +  Cave Wall 2", "swatch": "res://assets/texlib/cave_floor.png"},
+		{"title": "DUNGEON · HELL  (alt)", "floor": "res://assets/texlib/hell_floor.png", "wall": "res://assets/texlib/hell_wall.png", "layout": "dungeon", "tex_note": "Hell 2  +  Stone Wall 13", "swatch": "res://assets/texlib/hell_floor.png"},
+		{"title": "DUNGEON · CRYPT  (alt)", "floor": "res://assets/texlib/crypt_floor.png", "wall": "res://assets/texlib/crypt_wall.png", "layout": "dungeon", "tex_note": "Cobble 2  +  Stone Wall 1", "swatch": "res://assets/texlib/crypt_floor.png"},
 		{"title": "FLOODED SEWERS (Lv 7)", "floor": "res://assets/fx/biome/sewer_floor.png", "layout": "sewers"},
 		{"title": "THE SUBURBS (Lv 9)", "floor": "res://assets/fx/biome/tt_grass.png", "layout": "suburbs"},
 		{"title": "SPACE HANGAR (Kenney)", "floor": "res://assets/fx/biome/space_floor.png", "layout": "space"},
@@ -364,6 +367,27 @@ func _big_biome(cfg: Dictionary, center: Vector2, size: Vector2) -> void:
 	add_child(bg)
 	_pen_walls(center, half, true)
 	_label(String(cfg["title"]), center + Vector2(0, -half.y - 42))
+	# "Which texture?" swatch + note for alt biomes — shows what's used at a glance.
+	if cfg.has("tex_note"):
+		var note := Label.new()
+		note.text = String(cfg["tex_note"])
+		note.add_theme_font_size_override("font_size", 19)
+		note.add_theme_color_override("font_color", Color(0.72, 0.8, 0.95))
+		note.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+		note.add_theme_constant_override("outline_size", 4)
+		note.size = Vector2(half.x * 2.0, 26)
+		note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		note.position = center + Vector2(-half.x, -half.y - 20)
+		add_child(note)
+		var sw_t: Texture2D = _load_tex(String(cfg.get("swatch", cfg["floor"])))
+		if sw_t != null:
+			var sw := Sprite2D.new()
+			sw.texture = sw_t
+			sw.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+			sw.scale = Vector2.ONE * (96.0 / float(sw_t.get_width()))
+			sw.position = center + Vector2(-half.x + 64, -half.y + 64)
+			sw.z_index = 5
+			add_child(sw)
 	var floor_t: Texture2D = _load_tex(String(cfg["floor"]))
 	if floor_t == null:
 		return
