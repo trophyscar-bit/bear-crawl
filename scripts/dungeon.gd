@@ -293,48 +293,9 @@ func _spawn_floor() -> void:
 	_bk_floor_node = f   # kept so the backrooms pack switcher can re-texture it
 
 var _wall_torch_pos: Array = []   # placed wall-sconce positions (for spacing)
-var _player_torch: PointLight2D = null
-var _player_fill: PointLight2D = null
-var _wall_occluders: Array = []   # all wall LightOccluder2D (for live reshaping)
-var _light_mode_label: Label = null
-
-func _apply_test_light(mode: int) -> void:
-	# DEV: flip between the three candidate fixes for the hard wall-shadow edge.
-	if theme == "backrooms":
-		return
-	var base_ambient := Color(0.15, 0.14, 0.21)
-	var inset := 0.0
-	if _player_torch != null:
-		match mode:
-			1:  # kill wall shadows — perfectly smooth aura, but light bleeds past walls
-				_player_torch.shadow_enabled = false
-				if _player_fill != null: _player_fill.energy = 0.0
-				if _ambient != null: _ambient.color = base_ambient
-			2:  # inset occluders — shadow edge tucks under the wall art (no bleed)
-				_player_torch.shadow_enabled = true
-				if _player_fill != null: _player_fill.energy = 0.25
-				if _ambient != null: _ambient.color = base_ambient
-				inset = 4.0
-			3:  # bright ambient — shadow stays but low-contrast (less moody)
-				_player_torch.shadow_enabled = true
-				if _player_fill != null: _player_fill.energy = 0.25
-				if _ambient != null: _ambient.color = Color(0.30, 0.28, 0.34)
-	_reshape_occluders(inset)
-	_on_toast("LIGHT MODE %d" % mode, Color(0.7, 0.85, 1.0))
-	if _light_mode_label != null:
-		var names := {1: "no shadows", 2: "inset occluders", 3: "bright ambient"}
-		_light_mode_label.text = "LIGHT MODE %d — %s   (1/2/3)" % [mode, names.get(mode, "")]
-
-func _reshape_occluders(inset: float) -> void:
-	var h := tile / 2.0 - inset
-	var pts := PackedVector2Array([Vector2(-h, -h), Vector2(h, -h), Vector2(h, h), Vector2(-h, h)])
-	for occ in _wall_occluders:
-		if is_instance_valid(occ) and (occ as LightOccluder2D).occluder != null:
-			(occ as LightOccluder2D).occluder.polygon = pts
 
 func _build_walls() -> void:
 	_wall_torch_pos.clear()
-	_wall_occluders.clear()
 	for y in _fh:
 		for x in _fw:
 			if not _wall[y][x]:
@@ -394,7 +355,6 @@ func _build_walls() -> void:
 			poly.polygon = PackedVector2Array([
 				Vector2(-h, -h), Vector2(h, -h), Vector2(h, h), Vector2(-h, h)])
 			occ.occluder = poly
-			_wall_occluders.append(occ)
 			body.add_child(occ)
 			add_child(body)
 			# Wall-mounted torch sconce on walls that face a room below — a warm
@@ -436,35 +396,18 @@ func _spawn_player() -> void:
 		ally.global_position = _player.position + Vector2(-70, 60)
 		add_child(ally)
 	var torch := _player.get_node_or_null("BearLight") as PointLight2D
-	_player_torch = torch
 	if torch != null:
-		torch.energy = 0.70         # cut ~25% — softer, less blowout on walls
-		torch.texture_scale = 2.0   # aura cut ~25% so it doesn't slam a hard rim on blocks
+		torch.energy = 0.8
+		torch.texture_scale = 2.1
 		torch.color = Color(1.0, 0.78, 0.5)
-		torch.shadow_enabled = true
-		torch.shadow_filter = 2          # PCF13 soft shadows
-		# Moderate penumbra. (28 was too much — it muddied/washed the whole aura. A
-		# 2D point light has an inherently crisp shadow edge; this is the clean middle.)
-		torch.shadow_filter_smooth = 10.0
+		# No wall shadows on the player aura — a 2D point light casts hard-edged
+		# shadows that left an ugly hard line where lit floor met the wall. With
+		# shadows off the aura is a clean smooth gradient everywhere.
+		torch.shadow_enabled = false
 		if theme == "backrooms":
 			# Flat fluorescent space is already fully lit — no player light aura.
 			torch.visible = false
 			torch.energy = 0.0
-		else:
-			# Dim, SHADOWLESS fill light so the cast-shadow edge isn't a hard black
-			# line — it reaches a little into the shadow so lit→dark is a soft
-			# gradient. Kept small + faint so wall bleed is negligible.
-			var fill := PointLight2D.new()
-			fill.name = "BearFill"
-			fill.texture = torch.texture
-			fill.color = Color(1.0, 0.82, 0.55)
-			fill.energy = 0.25
-			fill.texture_scale = torch.texture_scale * 0.85
-			fill.shadow_enabled = false
-			fill.z_index = torch.z_index
-			fill.blend_mode = Light2D.BLEND_MODE_ADD
-			_player.add_child(fill)
-			_player_fill = fill
 
 func _spawn_boss() -> void:
 	_boss = EnemyScene.instantiate()
@@ -1351,13 +1294,6 @@ func _input(event: InputEvent) -> void:
 			if not _near_loot_item.is_empty() and is_instance_valid(_near_loot_area):
 				get_viewport().set_input_as_handled()
 				_offer_weapon(_near_loot_item, _near_loot_area)
-			# DEV light-edge test: 1 = no wall shadows, 2 = inset occluders, 3 = bright ambient
-			elif event.keycode == KEY_1:
-				_apply_test_light(1); get_viewport().set_input_as_handled()
-			elif event.keycode == KEY_2:
-				_apply_test_light(2); get_viewport().set_input_as_handled()
-			elif event.keycode == KEY_3:
-				_apply_test_light(3); get_viewport().set_input_as_handled()
 
 # ── lighting modes (live-switchable) ────────────────────────────────────────
 func _build_gi_layer() -> void:
@@ -2011,20 +1947,6 @@ func _build_hud() -> void:
 	var toast_font := FontFile.new()
 	if toast_font.load_dynamic_font("res://assets/luckiest_guy.ttf") == OK:
 		_hud_toast.add_theme_font_override("font", toast_font)
-	# DEV light-edge test — three clickable buttons (bottom-left) + a status label.
-	if theme != "backrooms":
-		_light_mode_label = _mk_label(layer, Vector2(16, 700), 15, Color(0.7, 0.82, 1.0))
-		_light_mode_label.text = "LIGHT EDGE TEST:"
-		var btn_labels := ["No-Shadow", "Inset", "Bright"]
-		for i in 3:
-			var b := Button.new()
-			b.text = btn_labels[i]
-			b.add_theme_font_size_override("font_size", 14)
-			b.focus_mode = Control.FOCUS_NONE
-			b.position = Vector2(16 + i * 112, 726)
-			b.custom_minimum_size = Vector2(106, 32)
-			b.pressed.connect(_apply_test_light.bind(i + 1))
-			layer.add_child(b)
 	# Boss health bar (top-centre, hidden until the guardian is engaged).
 	_hud_boss_root = Control.new()
 	_hud_boss_root.position = Vector2(522, 18)
