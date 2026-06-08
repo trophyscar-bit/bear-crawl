@@ -1127,6 +1127,8 @@ func _spawn_items() -> void:
 
 # ── runtime ────────────────────────────────────────────────────────────────
 func _process(delta: float) -> void:
+	if get_tree().paused:
+		return   # stats screen / popups paused us — don't run gameplay or waves
 	_wave_tick(delta)
 	if is_instance_valid(_player):
 		_camera.position = _player.position
@@ -1418,8 +1420,12 @@ func _toggle_stats() -> void:
 		_stats_layer.queue_free()
 		_stats_layer = null
 		get_tree().paused = false
+		process_mode = Node.PROCESS_MODE_INHERIT
 		return
 	get_tree().paused = true
+	# Keep OUR input alive while paused so Tab/Esc can still close this (gameplay
+	# logic is gated by the `if get_tree().paused` guard in _process).
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_stats_layer = CanvasLayer.new()
 	_stats_layer.layer = 94
 	_stats_layer.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -1429,17 +1435,21 @@ func _toggle_stats() -> void:
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_stats_layer.add_child(dim)
 	var panel := PanelContainer.new()
-	panel.position = Vector2(470, 130)
-	panel.custom_minimum_size = Vector2(500, 0)
+	panel.position = Vector2(350, 120)
+	panel.custom_minimum_size = Vector2(720, 0)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.08, 0.08, 0.12, 0.98)
 	sb.set_border_width_all(3); sb.border_color = Color(0.78, 0.64, 0.36)
 	sb.set_corner_radius_all(14); sb.set_content_margin_all(26)
 	panel.add_theme_stylebox_override("panel", sb)
 	_stats_layer.add_child(panel)
+	var hb := HBoxContainer.new()
+	hb.add_theme_constant_override("separation", 26)
+	panel.add_child(hb)
 	var vb := VBoxContainer.new()
 	vb.add_theme_constant_override("separation", 9)
-	panel.add_child(vb)
+	vb.custom_minimum_size = Vector2(430, 0)
+	hb.add_child(vb)
 	var title := Label.new()
 	title.text = "CHARACTER"
 	title.add_theme_font_size_override("font_size", 34)
@@ -1473,10 +1483,42 @@ func _toggle_stats() -> void:
 	hint.add_theme_color_override("font_color", Color(0.6, 0.62, 0.7))
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(hint)
+	# Right column — a close-up portrait of the player (a bit narrower).
+	var pcol := VBoxContainer.new()
+	pcol.add_theme_constant_override("separation", 10)
+	pcol.alignment = BoxContainer.ALIGNMENT_CENTER
+	hb.add_child(pcol)
+	var pframe := PanelContainer.new()
+	var psb := StyleBoxFlat.new()
+	psb.bg_color = Color(0.05, 0.05, 0.09, 0.92)
+	psb.set_corner_radius_all(12)
+	psb.set_border_width_all(2); psb.border_color = Color(0.78, 0.64, 0.36, 0.6)
+	psb.set_content_margin_all(8)
+	pframe.add_theme_stylebox_override("panel", psb)
+	pcol.add_child(pframe)
+	var portrait := TextureRect.new()
+	portrait.texture = load("res://assets/bear_upper.png")
+	portrait.custom_minimum_size = Vector2(210, 290)
+	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	pframe.add_child(portrait)
+	var pname := Label.new()
+	pname.text = "BEAR"
+	pname.add_theme_font_size_override("font_size", 24)
+	pname.add_theme_color_override("font_color", Color(0.92, 0.86, 0.6))
+	pname.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if tf.load_dynamic_font("res://assets/anton.ttf") == OK:
+		pname.add_theme_font_override("font", tf)
+	pcol.add_child(pname)
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
+			if is_instance_valid(_stats_layer):
+				get_viewport().set_input_as_handled()
+				_toggle_stats()   # Esc closes the character screen
+				return
 			if not has_node("PauseMenu"):
 				var pm := preload("res://scenes/pause_menu.tscn").instantiate()
 				pm.name = "PauseMenu"
