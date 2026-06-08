@@ -22,6 +22,7 @@ var dungeon_path: String = "res://scenes/dungeon.tscn"
 var light_mode: int = 1   # which live lighting preset is active (persists across floors)
 var light_boost: int = 1  # 1-5 brightness pump on all light sources (persists)
 var brightness_level: int = 2  # dungeon darkness preset 1=dark 2=medium 3=bright (persists)
+var auto_sell_rarity: bool = false  # auto-sell drops of same-or-lower rarity (persists)
 var enemy_bright: int = 1 # 1-3 enemy self-illumination (persists)
 var backrooms_pack: int = 5  # backrooms asset pack (locked to 5 — the chosen look)
 var no_projectile_glow: bool = false  # backrooms turns off the projectile glow
@@ -259,6 +260,9 @@ func weapon_upgrade_options() -> Array:
 	]
 	if bool(weapon.get("ball", false)):
 		opts.append({"id": "w_bounce", "name": "Super Bounce", "desc": "+3 Bounces", "color": wcol})
+		# The Bouncy Blaster is a weak-but-spammy speed weapon — give it a meatier
+		# damage path so you can actually build it up.
+		opts.append({"id": "w_dmg2", "name": "Dense Core", "desc": "+2 Damage", "color": wcol})
 	elif int(weapon.get("count_ups", 0)) < 1:
 		# +1 Projectile is a huge multiplicative DPS spike — offer it at most ONCE per
 		# weapon (stacking it to 4-5 shots was what broke the game).
@@ -316,6 +320,7 @@ func buy(item: Dictionary) -> bool:
 	if bool(item.get("weapon_upgrade", false)):
 		match id:
 			"w_dmg":      weapon["dmg"] = int(weapon.get("dmg", 1)) + 1
+			"w_dmg2":     weapon["dmg"] = int(weapon.get("dmg", 1)) + 2
 			"w_firerate": weapon["cooldown"] = maxf(0.07, float(weapon.get("cooldown", 0.34)) * 0.9)
 			"w_pierce":   weapon["pierce"] = int(weapon.get("pierce", 0)) + 1
 			"w_count":

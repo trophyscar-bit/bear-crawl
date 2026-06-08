@@ -1737,6 +1737,17 @@ func _spawn_loot(pos: Vector2, item: Dictionary) -> void:
 	area.add_child(prompt)
 	area.body_entered.connect(func(b: Node) -> void:
 		if b.is_in_group("player"):
+			# Auto-sell SAME-or-lower rarity (opt-in): commit to your weapon and only
+			# stop for genuinely rarer drops. Higher rarity always stays for an E pick.
+			if ArpgState.auto_sell_rarity and not ArpgState.weapon.is_empty() \
+					and int(item.get("rarity", 0)) <= int(ArpgState.weapon.get("rarity", 0)):
+				var v: int = ArpgState.weapon_sell_value(item)
+				ArpgState.gold += v
+				ArpgState.emit_signal("stats_changed")
+				ArpgState.emit_signal("toast", "+%d gold (auto-sold %s)" % [v, ArpgState.RARITY_NAMES[int(item.get("rarity", 0))]], Color(1.0, 0.85, 0.4))
+				if is_instance_valid(area):
+					area.queue_free()
+				return
 			# Clearly-weaker drops auto-sell for coins on contact — no pop-up nag.
 			if _weapon_is_junk(item):
 				# Trash auto-sells for a token amount only — not a farmable income.
@@ -2060,6 +2071,22 @@ func _build_hud() -> void:
 	if has_ui_font:
 		_hud_time_tl.add_theme_font_override("font", ui_font)
 		_hud_time_br.add_theme_font_override("font", ui_font)
+	# Auto-sell toggle (bottom-left): drops of same-or-lower rarity auto-scrap on
+	# contact; higher-rarity drops still wait for an E pickup. Persists across floors.
+	if theme != "backrooms":
+		var asb := Button.new()
+		asb.add_theme_font_size_override("font_size", 13)
+		asb.focus_mode = Control.FOCUS_NONE
+		asb.position = Vector2(16, 760)
+		asb.custom_minimum_size = Vector2(214, 30)
+		var refresh_as := func() -> void:
+			asb.text = "Auto-sell ≤ rarity: %s" % ("ON" if ArpgState.auto_sell_rarity else "OFF")
+		refresh_as.call()
+		asb.pressed.connect(func() -> void:
+			ArpgState.auto_sell_rarity = not ArpgState.auto_sell_rarity
+			refresh_as.call()
+			_on_toast("Auto-sell same-rarity %s" % ("ON" if ArpgState.auto_sell_rarity else "OFF"), Color(1.0, 0.9, 0.6)))
+		layer.add_child(asb)
 	# Boss health bar (top-centre, hidden until the guardian is engaged).
 	_hud_boss_root = Control.new()
 	_hud_boss_root.position = Vector2(522, 18)
