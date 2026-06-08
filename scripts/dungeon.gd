@@ -1498,7 +1498,12 @@ func _toggle_stats() -> void:
 	pframe.clip_contents = true
 	pcol.add_child(pframe)
 	var portrait := TextureRect.new()
-	portrait.texture = load("res://assets/bear_portrait.png")
+	# bear_portrait.png has no .import sidecar -> load() returns null. Load the raw
+	# PNG at runtime (FileAccess), falling back to the imported upper-body sprite.
+	var ptex: Texture2D = _load_tex_mip("res://assets/bear_portrait.png")
+	if ptex == null:
+		ptex = load("res://assets/bear_upper.png")
+	portrait.texture = ptex
 	portrait.custom_minimum_size = Vector2(300, 372)
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
