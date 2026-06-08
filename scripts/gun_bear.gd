@@ -10,7 +10,7 @@ const TEX_PATH := "res://assets/gun_bear.png"
 @onready var sprite: Sprite2D = $Rig/Body
 
 # Shooting tuning
-const SHOOT_COOLDOWN: float = 3.2
+const SHOOT_COOLDOWN: float = 4.2
 const SHOOT_WINDUP: float = 0.45
 const SHOOT_RANGE: float = 460.0
 const SHOOT_MIN_DIST: float = 90.0     # too close — kite back instead

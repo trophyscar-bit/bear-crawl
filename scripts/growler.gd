@@ -10,7 +10,7 @@ const ArrowScene := preload("res://scenes/arrow.tscn")
 
 const SHOOT_RANGE: float = 760.0
 const KEEP_DIST: float = 300.0       # preferred standoff distance
-const SHOOT_COOLDOWN: float = 1.3    # shoots often
+const SHOOT_COOLDOWN: float = 2.2    # less spammy (was 1.3)
 const SHOOT_WINDUP: float = 0.26
 const ARROW_SPEED: float = 535.0     # another 15% slower (was 630)
 const AGGRO_MEM: float = 5.0         # stays alert this long after losing sight

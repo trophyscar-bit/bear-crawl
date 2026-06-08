@@ -724,50 +724,114 @@ func _cell_in_room(r: Rect2i) -> Vector2:
 	var y: int = randi_range(r.position.y, r.position.y + r.size.y - 1)
 	return Vector2((x + 0.5) * tile, (y + 0.5) * tile)
 
+# ── Vampire-Survivors-style timed wave director ─────────────────────────────
+# Enemy types ordered EASIEST → HARDEST. They unlock over time: the floor opens
+# with only the first couple, then a new type joins the spawn pool every ~38s.
+# Deeper floors start further along the schedule (more variety up front).
+const WAVE_UNLOCKS: Array = [
+	SkeletonScene,        # 0  pure melee, no ranged — the gentle intro
+	SealScene,            # 1  Long Bear — blocker, doesn't even attack
+	DucklingScene,        # 2  weak fast swarmer
+	CreamBearScene,       # 3  basic melee critter
+	BeanieBearScene,      # 4  lobs slow beanies
+	HoundScene,           # 5  pounce
+	GunBearScene,         # 6  burst rifle
+	GrowlerScene,         # 7  archer
+	FrostCubScene,        # 8  freeze orb
+	TeddyBearScene,       # 9  suicide bomber
+	ShrinkwrapBearScene,  # 10 air puff
+	EnemyScene,           # 11 KK — stars + paw
+	PlushBrawlerScene,    # 12 charger
+]
+const WAVE_UNLOCK_INTERVAL: float = 38.0
+
+var _wave_t: float = 0.0
+var _wave_spawn_t: float = 0.0
+var _wave_started: bool = false
+var _wave_last_unlocked: int = 0
+
 func _spawn_enemies() -> void:
-	# Spread enemies EVENLY across every room (except the start), round-robin,
-	# so the dungeon is populated throughout instead of all clustered up front.
-	var rooms: Array[Rect2i] = []
-	for r in _rooms:
-		if r != _start_room:
-			rooms.append(r)
-	if rooms.is_empty():
-		rooms = _rooms.duplicate()
-	rooms.shuffle()
-	# DPS-scaling: a strong build grows the swarm (count) and toughens enemies (HP),
-	# but sub-linearly so it's harder, not a slog. Count caps so projectiles/perf stay sane.
-	var ratio: float = ArpgState.challenge_ratio()
-	var spawn_count: int = mini(int(round(float(enemy_count) * minf(ratio, 1.7))), enemy_count + 40)
-	var hp_power_mult: float = sqrt(ratio)
-	for i in spawn_count:
-		var pos := _cell_in_room(rooms[i % rooms.size()])
-		var roll := randf()
-		var scene: PackedScene = EnemyScene
-		if roll < 0.12:
-			scene = PlushBrawlerScene
-		elif roll < 0.22:
-			scene = GunBearScene
-		elif roll < 0.32:
-			scene = ShrinkwrapBearScene
-		elif roll < 0.42:
-			scene = GrowlerScene
-		elif roll < 0.80:
-			scene = CRITTER_POOL[randi() % CRITTER_POOL.size()]   # the new animal mobs
-		var e := scene.instantiate()
-		e.position = pos
-		add_child(e)
-		# Scale HP AFTER add_child: the subtypes (brawler/gun/shrink) set their
-		# base max_health in their OWN _ready, which would overwrite any value we
-		# set before. Read the final base here, scale, and refill current health.
-		if "max_health" in e:
-			var base_hp: int = int(e.max_health)
-			var diff: float = _difficulty_hp_mult()
-			e.max_health = int(round(float(base_hp) * 6.0 * diff * hp_power_mult)) + 3 + int(ArpgState.depth - 1) * 4
-			e.set("health", e.max_health)
-			# Enemies also hit harder the deeper you go (+1 contact damage every 3
-			# floors) so your smaller HP pool actually matters late.
-			if "touch_damage" in e:
-				e.touch_damage = int(e.touch_damage) + int((ArpgState.depth - 1) / 3)
+	# Floor opens with a SMALL batch of only the easiest unlocked types; the wave
+	# director (in _process) keeps the pressure ramping from there.
+	_wave_started = true
+	_wave_t = 0.0
+	_wave_spawn_t = 3.0
+	_wave_last_unlocked = _wave_unlocked_count()
+	var seed_n: int = int(_wave_alive_cap() * 0.45)
+	for i in seed_n:
+		_spawn_one(_wave_pick_scene(), _random_floor_world(tile * 5.0, true))
+
+func _wave_tick(delta: float) -> void:
+	if not _wave_started or _cleared:
+		return
+	_wave_t += delta
+	# Toast when a new enemy type joins the fray.
+	var unlocked: int = _wave_unlocked_count()
+	if unlocked > _wave_last_unlocked:
+		_wave_last_unlocked = unlocked
+		var nm: String = String(WAVE_UNLOCKS[unlocked - 1].resource_path.get_file().get_basename()).to_upper()
+		_on_toast("NEW THREAT: %s" % nm, Color(1.0, 0.55, 0.4))
+	_wave_spawn_t -= delta
+	if _wave_spawn_t <= 0.0:
+		_wave_spawn_t = _wave_interval()
+		_wave_spawn_batch()
+
+func _wave_unlocked_count() -> int:
+	var base: int = 2 + (ArpgState.depth - 1) * 2   # depth 1 opens with 2 types, +2 per floor
+	return clampi(base + int(_wave_t / WAVE_UNLOCK_INTERVAL), 1, WAVE_UNLOCKS.size())
+
+func _wave_pick_scene() -> PackedScene:
+	var n: int = _wave_unlocked_count()
+	# Bias toward the newest (hardest) unlocks so the threat actually escalates,
+	# but keep the easy types in rotation for variety.
+	if n > 3 and randf() < 0.55:
+		return WAVE_UNLOCKS[randi_range(maxi(0, n - 3), n - 1)]
+	return WAVE_UNLOCKS[randi() % n]
+
+func _wave_alive_cap() -> int:
+	var base: int = 20
+	match GameSettings.difficulty:
+		0: base = 13   # EASY
+		2: base = 30   # HARD
+	return base + int(_wave_t / 25.0) * 2   # cap creeps up over the run
+
+func _wave_interval() -> float:
+	return maxf(1.3, 3.2 - _wave_t / 80.0)   # batches come a bit faster over time
+
+func _wave_batch_size() -> int:
+	return 2 + int(_wave_t / 55.0)
+
+func _wave_spawn_batch() -> void:
+	var alive: int = get_tree().get_nodes_in_group("enemies").size()
+	var cap: int = _wave_alive_cap()
+	if alive >= cap:
+		return
+	var n: int = mini(_wave_batch_size(), cap - alive)
+	for i in n:
+		var pos: Vector2 = _random_floor_world(0.0, true)
+		# Don't pop in right on top of the player.
+		if is_instance_valid(_player) and pos.distance_to(_player.position) < tile * 6.0:
+			pos = _random_floor_world(0.0, true)
+		_spawn_one(_wave_pick_scene(), pos)
+
+func _spawn_one(scene: PackedScene, pos: Vector2) -> void:
+	var e := scene.instantiate()
+	e.position = pos
+	add_child(e)
+	_configure_enemy(e)
+
+func _configure_enemy(e: Node) -> void:
+	# Scale HP AFTER add_child: subtypes set their base max_health in their OWN
+	# _ready, which would overwrite a value set before. Read the final base, scale.
+	if "max_health" in e:
+		var base_hp: int = int(e.max_health)
+		var diff: float = _difficulty_hp_mult()
+		var hp_power_mult: float = sqrt(ArpgState.challenge_ratio())
+		e.max_health = int(round(float(base_hp) * 6.0 * diff * hp_power_mult)) + 3 + int(ArpgState.depth - 1) * 4
+		e.set("health", e.max_health)
+		# Enemies hit a little harder the deeper you go (+1 contact dmg every 3 floors).
+		if "touch_damage" in e:
+			e.touch_damage = int(e.touch_damage) + int((ArpgState.depth - 1) / 3)
 
 func _difficulty_hp_mult() -> float:
 	# Easy/Medium/Hard now actually affect the dungeon's enemy toughness.
@@ -1013,6 +1077,7 @@ func _spawn_items() -> void:
 
 # ── runtime ────────────────────────────────────────────────────────────────
 func _process(delta: float) -> void:
+	_wave_tick(delta)
 	if is_instance_valid(_player):
 		_camera.position = _player.position
 		if _fog_mat != null:
