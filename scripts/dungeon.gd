@@ -395,7 +395,9 @@ func _spawn_player() -> void:
 		torch.color = Color(1.0, 0.78, 0.5)
 		torch.shadow_enabled = true
 		torch.shadow_filter = 2          # PCF13 soft shadows
-		torch.shadow_filter_smooth = 11.0   # wider penumbra — soften the hard wall edge
+		# Much wider PCF penumbra so the aura FEATHERS into the wall instead of the
+		# gradient slamming into a hard line where the wall cuts the light.
+		torch.shadow_filter_smooth = 28.0
 		# (No indirect "fill" light — it bled through walls. Walls block all light now.)
 		if theme == "backrooms":
 			# Flat fluorescent space is already fully lit — no player light aura.
@@ -1652,6 +1654,8 @@ func _weapon_is_junk(item: Dictionary) -> bool:
 	# stopping for, so it auto-sells instead of opening the compare screen.
 	if ArpgState.weapon.is_empty() or item.is_empty():
 		return false
+	if ArpgState.depth <= 1:
+		return false   # floor 1: show every drop so early choices aren't auto-eaten
 	var fe: Dictionary = ArpgState.weapon_eval(item)
 	var ce: Dictionary = ArpgState.weapon_eval(ArpgState.weapon)
 	return float(fe.get("dps", 0.0)) <= float(ce.get("dps", 0.0)) - 10.0

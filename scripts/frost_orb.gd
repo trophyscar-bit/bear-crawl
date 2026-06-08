@@ -4,7 +4,7 @@ extends Area2D
 # forward — and FREEZES the player for 1s on contact. Dies on walls.
 
 @export var direction: Vector2 = Vector2.RIGHT
-@export var forward_speed: float = 165.0
+@export var forward_speed: float = 190.0
 @export var spin: float = 6.5          # rad/s around the travel axis
 @export var radius: float = 34.0       # loop radius
 @export var freeze_time: float = 1.0

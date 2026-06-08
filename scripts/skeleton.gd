@@ -16,6 +16,14 @@ func _ready() -> void:
 	touch_damage = 1
 	throws_stars = false
 	super._ready()
+	# The shared HP-bar offset assumes a ~0.4 bear rig scale; the skeleton's 2.8
+	# scale flung it way overhead. Pin the bar just above his head.
+	if is_instance_valid(_hpbar_bg):
+		_hpbar_bg.position.y = -58.0
+	if is_instance_valid(_hpbar_fill):
+		_hpbar_fill.position.y = -56.0
+	if is_instance_valid(_hpbar_hi):
+		_hpbar_hi.position.y = -56.0
 	var t := _load_png("res://assets/skeleton_walk.png")
 	if t != null and is_instance_valid(_spr):
 		_spr.texture = t

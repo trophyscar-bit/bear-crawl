@@ -215,7 +215,7 @@ func notify_kill(pos: Vector2) -> void:
 	emit_signal("stats_changed")
 	# Loot drop chance (weapons). Lowered hard so the floor isn't paved with free
 	# coins (you could farm-sell trash drops into a full shop by floor 3).
-	if randf() < 0.10:
+	if randf() < 0.16:
 		emit_signal("loot_dropped", pos, roll_weapon())
 
 func add_xp(amount: int) -> void:
