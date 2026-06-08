@@ -117,6 +117,7 @@ var _hud_boss_label: Label
 
 func _ready() -> void:
 	randomize()
+	Engine.time_scale = 1.0   # defensive: clear any stale slow-mo from a prior scene
 	if theme == "backrooms":
 		_bk_wall = _load_tex_opt("res://assets/backrooms_wall.png")
 		_bk_floor = _load_tex_opt("res://assets/backrooms_floor.png")
@@ -1184,6 +1185,7 @@ func _on_exit() -> void:
 	if not _boss_dead:
 		return   # exit stays shut until the boss dies — no nag toast
 	_cleared = true
+	Engine.time_scale = 1.0   # never carry slow-mo into the next scene
 	ArpgState.descend()
 	get_tree().change_scene_to_file("res://scenes/shop.tscn")
 
@@ -1417,13 +1419,12 @@ func _toggle_stats() -> void:
 	if is_instance_valid(_stats_layer):
 		_stats_layer.queue_free()
 		_stats_layer = null
-		get_tree().paused = false
-		process_mode = Node.PROCESS_MODE_INHERIT
+		Engine.time_scale = 1.0          # back to full speed
 		return
-	get_tree().paused = true
-	# Keep OUR input alive while paused so Tab/Esc can still close this (gameplay
-	# logic is gated by the `if get_tree().paused` guard in _process).
-	process_mode = Node.PROCESS_MODE_ALWAYS
+	# Don't pause — run the world in slow-mo (25%) so you can read your stats while
+	# the action keeps creeping along. Input/UI run in real time (time_scale only
+	# affects in-game delta), so Tab/Esc still close instantly.
+	Engine.time_scale = 0.25
 	_stats_layer = CanvasLayer.new()
 	_stats_layer.layer = 94
 	_stats_layer.process_mode = Node.PROCESS_MODE_ALWAYS
