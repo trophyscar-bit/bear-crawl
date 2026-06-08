@@ -1495,12 +1495,13 @@ func _toggle_stats() -> void:
 	psb.set_border_width_all(2); psb.border_color = Color(0.78, 0.64, 0.36, 0.6)
 	psb.set_content_margin_all(8)
 	pframe.add_theme_stylebox_override("panel", psb)
+	pframe.clip_contents = true
 	pcol.add_child(pframe)
 	var portrait := TextureRect.new()
-	portrait.texture = load("res://assets/bear_upper.png")
-	portrait.custom_minimum_size = Vector2(210, 290)
+	portrait.texture = load("res://assets/bear_portrait.png")
+	portrait.custom_minimum_size = Vector2(300, 372)
 	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
 	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	pframe.add_child(portrait)
 	var pname := Label.new()
