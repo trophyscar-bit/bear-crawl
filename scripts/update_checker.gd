@@ -1,11 +1,12 @@
 extends Node
 
-# Lightweight GitHub-Releases auto-updater (autoload: Updater).
+# GitHub-Releases auto-updater (autoload: Updater).
 #
-# Compares GameSettings.VERSION against the latest release tag on the repo. If a
-# newer one exists it can download the packaged .exe and self-replace via a small
-# batch script (Windows standalone builds only). In the editor it just opens the
-# releases page instead of trying to swap a binary.
+# On launch it checks the latest release tag against GameSettings.VERSION. If a
+# newer build exists it pops a SPLASH over the title screen — Update Now downloads
+# the new .exe in-game, then a 5s countdown (or button) relaunches into it. The
+# running exe is locked, so the actual swap is done by a tiny batch in the gap
+# between close and reopen. In the editor it just opens the releases page.
 
 const OWNER := "trophyscar-bit"
 const REPO := "bear-crawl"
@@ -19,10 +20,18 @@ var _latest_tag: String = ""
 var _exe_url: String = ""
 var _download_path: String = ""
 
+# Splash UI
+var _overlay: CanvasLayer = null
+var _panel_vbox: VBoxContainer = null
+var _relaunch_t: float = 0.0
+var _relaunching: bool = false
+
 func _ready() -> void:
 	_http = HTTPRequest.new()
 	add_child(_http)
 	_http.request_completed.connect(_on_request_completed)
+	# Auto-check shortly after launch (give the title screen a beat to appear).
+	get_tree().create_timer(1.3).timeout.connect(check_for_updates)
 
 func current_version() -> String:
 	return GameSettings.VERSION
@@ -30,10 +39,7 @@ func current_version() -> String:
 func releases_url() -> String:
 	return "https://github.com/%s/%s/releases/latest" % [OWNER, REPO]
 
-func has_update() -> bool:
-	return _exe_url != "" and _is_newer(_latest_tag, current_version())
-
-# --- check ------------------------------------------------------------------
+# ── version check ───────────────────────────────────────────────────────────
 func check_for_updates() -> void:
 	if _busy:
 		return
@@ -64,57 +70,131 @@ func _on_request_completed(result: int, code: int, _headers: PackedStringArray, 
 				break
 		if _is_newer(_latest_tag, current_version()):
 			emit_signal("status_changed", "Update available: v%s" % _latest_tag, true)
+			_show_update_splash()
 		else:
 			emit_signal("status_changed", "Up to date (v%s)" % current_version(), false)
 	elif _mode == "download":
 		_busy = false
 		_http.download_file = ""
 		if result != HTTPRequest.RESULT_SUCCESS or code != 200:
-			emit_signal("status_changed", "Download failed", false)
+			_set_panel("Download failed.", "Couldn't fetch the update — try again later.", [
+				{"text": "Close", "cb": _close_overlay}])
 			return
-		_prompt_restart()
+		_show_relaunch_prompt()
 
-# --- download + self-replace ------------------------------------------------
-func download_and_install() -> void:
-	if _busy:
+# ── splash UI ───────────────────────────────────────────────────────────────
+func _show_update_splash() -> void:
+	if _overlay != null:
 		return
-	# No packaged exe to pull, or running from the Godot editor (can't swap a live
-	# binary) — just open the releases page instead.
-	if _exe_url == "" or OS.has_feature("editor"):
-		OS.shell_open(releases_url())
+	# In the editor (or with no packaged exe) we can't self-replace a binary — just
+	# point at the releases page if the user manually asks.
+	if OS.has_feature("editor") or _exe_url == "":
+		return
+	_overlay = CanvasLayer.new()
+	_overlay.layer = 200
+	_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
+	get_tree().root.add_child(_overlay)
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.0, 0.04, 0.86)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_overlay.add_child(dim)
+	var panel := PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.position = Vector2(440, 280)
+	panel.custom_minimum_size = Vector2(560, 250)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.09, 0.09, 0.13, 0.98)
+	sb.set_border_width_all(3); sb.border_color = Color(1.0, 0.82, 0.3)
+	sb.set_corner_radius_all(16)
+	sb.set_content_margin_all(26)
+	panel.add_theme_stylebox_override("panel", sb)
+	_overlay.add_child(panel)
+	_panel_vbox = VBoxContainer.new()
+	_panel_vbox.add_theme_constant_override("separation", 16)
+	_panel_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	panel.add_child(_panel_vbox)
+	_set_panel("🐻  UPDATE AVAILABLE", "A new version (v%s) is ready.\nYou're on v%s." % [_latest_tag, current_version()], [
+		{"text": "Update Now", "cb": _start_download, "accent": true},
+		{"text": "Later", "cb": _close_overlay}])
+
+func _set_panel(title: String, body: String, buttons: Array) -> void:
+	if not is_instance_valid(_panel_vbox):
+		return
+	for c in _panel_vbox.get_children():
+		c.queue_free()
+	var t := Label.new()
+	t.text = title
+	t.add_theme_font_size_override("font_size", 30)
+	t.add_theme_color_override("font_color", Color(1.0, 0.86, 0.35))
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var lf := FontFile.new()
+	if lf.load_dynamic_font("res://assets/anton.ttf") == OK:
+		t.add_theme_font_override("font", lf)
+	_panel_vbox.add_child(t)
+	var b := Label.new()
+	b.text = body
+	b.add_theme_font_size_override("font_size", 18)
+	b.add_theme_color_override("font_color", Color(0.86, 0.88, 0.94))
+	b.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_panel_vbox.add_child(b)
+	if not buttons.is_empty():
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 18)
+		row.alignment = BoxContainer.ALIGNMENT_CENTER
+		_panel_vbox.add_child(row)
+		for spec in buttons:
+			var btn := Button.new()
+			btn.text = String(spec.get("text", "OK"))
+			btn.custom_minimum_size = Vector2(180, 46)
+			btn.add_theme_font_size_override("font_size", 20)
+			btn.focus_mode = Control.FOCUS_NONE
+			if bool(spec.get("accent", false)):
+				btn.add_theme_color_override("font_color", Color(0.1, 0.08, 0.02))
+				var bsb := StyleBoxFlat.new()
+				bsb.bg_color = Color(1.0, 0.82, 0.3); bsb.set_corner_radius_all(8); bsb.set_content_margin_all(8)
+				btn.add_theme_stylebox_override("normal", bsb)
+				btn.add_theme_stylebox_override("hover", bsb)
+			var cb: Callable = spec["cb"]
+			btn.pressed.connect(cb)
+			row.add_child(btn)
+
+# ── download + relaunch ─────────────────────────────────────────────────────
+func _start_download() -> void:
+	if _busy:
 		return
 	_busy = true
 	_mode = "download"
-	emit_signal("status_changed", "Downloading v%s…" % _latest_tag, false)
+	_set_panel("DOWNLOADING…", "Fetching v%s. This is a big file — hang tight." % _latest_tag, [])
 	_download_path = OS.get_executable_path().get_base_dir().path_join("BEAR_GAME_update.exe")
 	_http.download_file = _download_path
 	if _http.request(_exe_url, PackedStringArray(["User-Agent: bear-crawl-updater"])) != OK:
 		_busy = false
 		_http.download_file = ""
-		emit_signal("status_changed", "Download failed", false)
+		_set_panel("Download failed.", "Couldn't start the download.", [{"text": "Close", "cb": _close_overlay}])
 
-func _prompt_restart() -> void:
-	# Download is on disk — ask before we close + relaunch.
-	emit_signal("status_changed", "Update v%s ready" % _latest_tag, true)
-	var dlg := ConfirmationDialog.new()
-	dlg.title = "Bear Crawl Update"
-	dlg.dialog_text = "Update v%s downloaded.\nRestart now to apply it?" % _latest_tag
-	dlg.ok_button_text = "Restart now"
-	dlg.cancel_button_text = "Later"
-	get_tree().root.add_child(dlg)
-	dlg.confirmed.connect(func() -> void:
-		dlg.queue_free()
-		_apply_update())
-	dlg.canceled.connect(func() -> void:
-		dlg.queue_free()
-		emit_signal("status_changed", "Update ready — restart to apply", true))
-	dlg.popup_centered()
+func _show_relaunch_prompt() -> void:
+	_relaunch_t = 5.0
+	_relaunching = true
+	_set_panel("UPDATE READY!", "Relaunching in 5…", [{"text": "Relaunch Now", "cb": _apply_update, "accent": true}])
+
+func _process(delta: float) -> void:
+	if not _relaunching:
+		return
+	_relaunch_t -= delta
+	if is_instance_valid(_panel_vbox) and _panel_vbox.get_child_count() > 1:
+		var lbl := _panel_vbox.get_child(1) as Label
+		if lbl != null:
+			lbl.text = "Relaunching in %d…" % maxi(0, ceili(_relaunch_t))
+	if _relaunch_t <= 0.0:
+		_relaunching = false
+		_apply_update()
 
 func _apply_update() -> void:
+	_relaunching = false
 	var exe := OS.get_executable_path()
 	var bat := exe.get_base_dir().path_join("_bearcrawl_update.bat")
-	# Wait for the game to close (exe is locked while running), swap, relaunch,
-	# then the batch deletes itself.
+	# Wait for this exe to close (it's locked while running), swap in the new file,
+	# relaunch, then delete the batch.
 	var script := "@echo off\r\n" \
 		+ "timeout /t 2 /nobreak >nul\r\n" \
 		+ "move /y \"%s\" \"%s\"\r\n" % [_download_path, exe] \
@@ -122,13 +202,19 @@ func _apply_update() -> void:
 		+ "del \"%%~f0\"\r\n"
 	var f := FileAccess.open(bat, FileAccess.WRITE)
 	if f == null:
-		emit_signal("status_changed", "Update failed", false)
+		_set_panel("Update failed.", "Couldn't write the updater script.", [{"text": "Close", "cb": _close_overlay}])
 		return
 	f.store_string(script)
 	f.close()
-	emit_signal("status_changed", "Restarting to update…", false)
 	OS.create_process("cmd.exe", ["/c", bat])
 	get_tree().quit()
+
+func _close_overlay() -> void:
+	_relaunching = false
+	if is_instance_valid(_overlay):
+		_overlay.queue_free()
+	_overlay = null
+	_panel_vbox = null
 
 func _is_newer(latest: String, current: String) -> bool:
 	if latest == "":

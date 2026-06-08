@@ -413,10 +413,8 @@ func _setup_version_ui() -> void:
 	Updater.check_for_updates()   # quiet auto-check on launch
 
 func _on_update_pressed() -> void:
-	if _update_ready:
-		Updater.download_and_install()   # downloads the new exe + self-restarts
-	else:
-		Updater.check_for_updates()
+	# Re-check; if an update exists the Updater pops its own splash + install flow.
+	Updater.check_for_updates()
 
 func _on_update_status(msg: String, available: bool) -> void:
 	_update_ready = available
