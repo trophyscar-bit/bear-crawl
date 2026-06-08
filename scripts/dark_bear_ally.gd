@@ -14,6 +14,7 @@ var _retarget_t: float = 0.0
 var _offset: Vector2 = Vector2(0, 680)
 var _shoot_t: float = 0.6
 var _facing: int = 1
+var _offscreen_t: float = 0.0   # how long he's been off-camera
 
 func _ready() -> void:
 	add_to_group("ally")
@@ -51,9 +52,19 @@ func _physics_process(delta: float) -> void:
 	else:
 		velocity = velocity.lerp(Vector2.ZERO, 0.25)
 	move_and_slide()
-	# snap-catch if he somehow gets stranded
-	if far > 1500.0:
-		global_position = ppos - _offset.normalized() * 760.0
+	# Off-screen stuck recovery: if he's been outside the visible screen for 6s
+	# (wall-stuck, flung off, etc.), warp him to just beyond the screen edge near
+	# you and let him fly back in normally.
+	if _is_on_screen():
+		_offscreen_t = 0.0
+	else:
+		_offscreen_t += delta
+		if _offscreen_t >= 6.0:
+			_warp_offscreen_near(ppos)
+			_offscreen_t = 0.0
+	# hard fallback if he's somehow flung extremely far
+	if far > 1800.0:
+		_warp_offscreen_near(ppos)
 	if absf(velocity.x) > 4.0:
 		_facing = 1 if velocity.x > 0.0 else -1
 		_rig.scale.x = absf(_rig.scale.x) * _facing
@@ -61,6 +72,28 @@ func _physics_process(delta: float) -> void:
 	_shoot_t -= delta
 	if _shoot_t <= 0.0:
 		_try_shoot()
+
+func _is_on_screen() -> bool:
+	var cam := get_viewport().get_camera_2d()
+	if cam == null:
+		return true   # no camera info — assume visible, don't warp
+	var view: Vector2 = get_viewport_rect().size / cam.zoom
+	var rect := Rect2(cam.get_screen_center_position() - view * 0.5, view)
+	return rect.has_point(global_position)
+
+func _warp_offscreen_near(ppos: Vector2) -> void:
+	# Drop him just beyond the screen edge near the player, already heading inward.
+	var half: float = 700.0
+	var cam := get_viewport().get_camera_2d()
+	if cam != null:
+		var view: Vector2 = get_viewport_rect().size / cam.zoom
+		half = maxf(view.x, view.y) * 0.5 + 70.0
+	var dir: Vector2 = global_position - ppos
+	if dir.length() < 1.0:
+		dir = Vector2.from_angle(randf() * TAU)
+	dir = dir.normalized()
+	global_position = ppos + dir * half
+	velocity = -dir * speed   # fly back in toward you
 
 func _try_shoot() -> void:
 	var e: Node2D = _nearest_enemy()   # nearest enemy he can actually SEE (LOS-gated)
