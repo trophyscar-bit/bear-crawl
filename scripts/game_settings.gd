@@ -4,7 +4,7 @@ extends Node
 
 # Game version. Bump this on every change (2.1, 2.2, 2.3 …). The title screen
 # shows it and the auto-updater compares it against the latest GitHub release tag.
-const VERSION: String = "2.12"
+const VERSION: String = "2.13"
 
 enum Difficulty { EASY, MEDIUM, HARD }
 

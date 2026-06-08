@@ -293,9 +293,44 @@ func _spawn_floor() -> void:
 	_bk_floor_node = f   # kept so the backrooms pack switcher can re-texture it
 
 var _wall_torch_pos: Array = []   # placed wall-sconce positions (for spacing)
+var _player_torch: PointLight2D = null
+var _player_fill: PointLight2D = null
+var _wall_occluders: Array = []   # all wall LightOccluder2D (for live reshaping)
+
+func _apply_test_light(mode: int) -> void:
+	# DEV: flip between the three candidate fixes for the hard wall-shadow edge.
+	if theme == "backrooms":
+		return
+	var base_ambient := Color(0.15, 0.14, 0.21)
+	var inset := 0.0
+	if _player_torch != null:
+		match mode:
+			1:  # kill wall shadows — perfectly smooth aura, but light bleeds past walls
+				_player_torch.shadow_enabled = false
+				if _player_fill != null: _player_fill.energy = 0.0
+				if _ambient != null: _ambient.color = base_ambient
+			2:  # inset occluders — shadow edge tucks under the wall art (no bleed)
+				_player_torch.shadow_enabled = true
+				if _player_fill != null: _player_fill.energy = 0.25
+				if _ambient != null: _ambient.color = base_ambient
+				inset = 4.0
+			3:  # bright ambient — shadow stays but low-contrast (less moody)
+				_player_torch.shadow_enabled = true
+				if _player_fill != null: _player_fill.energy = 0.25
+				if _ambient != null: _ambient.color = Color(0.30, 0.28, 0.34)
+	_reshape_occluders(inset)
+	_on_toast("LIGHT MODE %d" % mode, Color(0.7, 0.85, 1.0))
+
+func _reshape_occluders(inset: float) -> void:
+	var h := tile / 2.0 - inset
+	var pts := PackedVector2Array([Vector2(-h, -h), Vector2(h, -h), Vector2(h, h), Vector2(-h, h)])
+	for occ in _wall_occluders:
+		if is_instance_valid(occ) and (occ as LightOccluder2D).occluder != null:
+			(occ as LightOccluder2D).occluder.polygon = pts
 
 func _build_walls() -> void:
 	_wall_torch_pos.clear()
+	_wall_occluders.clear()
 	for y in _fh:
 		for x in _fw:
 			if not _wall[y][x]:
@@ -355,6 +390,7 @@ func _build_walls() -> void:
 			poly.polygon = PackedVector2Array([
 				Vector2(-h, -h), Vector2(h, -h), Vector2(h, h), Vector2(-h, h)])
 			occ.occluder = poly
+			_wall_occluders.append(occ)
 			body.add_child(occ)
 			add_child(body)
 			# Wall-mounted torch sconce on walls that face a room below — a warm
@@ -396,6 +432,7 @@ func _spawn_player() -> void:
 		ally.global_position = _player.position + Vector2(-70, 60)
 		add_child(ally)
 	var torch := _player.get_node_or_null("BearLight") as PointLight2D
+	_player_torch = torch
 	if torch != null:
 		torch.energy = 0.70         # cut ~25% — softer, less blowout on walls
 		torch.texture_scale = 2.0   # aura cut ~25% so it doesn't slam a hard rim on blocks
@@ -417,12 +454,13 @@ func _spawn_player() -> void:
 			fill.name = "BearFill"
 			fill.texture = torch.texture
 			fill.color = Color(1.0, 0.82, 0.55)
-			fill.energy = 1.8     # DIAGNOSTIC: cranked hard to confirm this is the knob
-			fill.texture_scale = torch.texture_scale * 1.4
+			fill.energy = 0.25
+			fill.texture_scale = torch.texture_scale * 0.85
 			fill.shadow_enabled = false
 			fill.z_index = torch.z_index
 			fill.blend_mode = Light2D.BLEND_MODE_ADD
 			_player.add_child(fill)
+			_player_fill = fill
 
 func _spawn_boss() -> void:
 	_boss = EnemyScene.instantiate()
@@ -1309,6 +1347,13 @@ func _input(event: InputEvent) -> void:
 			if not _near_loot_item.is_empty() and is_instance_valid(_near_loot_area):
 				get_viewport().set_input_as_handled()
 				_offer_weapon(_near_loot_item, _near_loot_area)
+			# DEV light-edge test: 1 = no wall shadows, 2 = inset occluders, 3 = bright ambient
+			elif event.keycode == KEY_1:
+				_apply_test_light(1); get_viewport().set_input_as_handled()
+			elif event.keycode == KEY_2:
+				_apply_test_light(2); get_viewport().set_input_as_handled()
+			elif event.keycode == KEY_3:
+				_apply_test_light(3); get_viewport().set_input_as_handled()
 
 # ── lighting modes (live-switchable) ────────────────────────────────────────
 func _build_gi_layer() -> void:
