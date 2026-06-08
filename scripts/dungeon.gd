@@ -750,6 +750,8 @@ var _wave_t: float = 0.0
 var _wave_spawn_t: float = 0.0
 var _wave_started: bool = false
 var _wave_last_unlocked: int = 0
+var _hud_time_tl: Label = null
+var _hud_time_br: Label = null
 
 func _spawn_enemies() -> void:
 	# Floor opens with a SMALL batch of only the easiest unlocked types; the wave
@@ -766,6 +768,11 @@ func _wave_tick(delta: float) -> void:
 	if not _wave_started or _cleared:
 		return
 	_wave_t += delta
+	var ts: String = "%d:%02d" % [int(_wave_t) / 60, int(_wave_t) % 60]
+	if _hud_time_tl != null:
+		_hud_time_tl.text = ts
+	if _hud_time_br != null:
+		_hud_time_br.text = ts
 	# Toast when a new enemy type joins the fray.
 	var unlocked: int = _wave_unlocked_count()
 	if unlocked > _wave_last_unlocked:
@@ -2027,24 +2034,19 @@ func _build_hud() -> void:
 	_hud_toast.size = Vector2(1440, 40)
 	_hud_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hud_toast.modulate.a = 0.0
-	# Chunky, friendly display font for toasts (auto-gold, level up, etc.).
-	var toast_font := FontFile.new()
-	if toast_font.load_dynamic_font("res://assets/luckiest_guy.ttf") == OK:
-		_hud_toast.add_theme_font_override("font", toast_font)
-	# Brightness preset buttons (bottom-left): 1 Dark / 2 Medium / 3 Bright.
-	if theme != "backrooms":
-		var bl := _mk_label(layer, Vector2(16, 700), 15, Color(0.85, 0.82, 0.6))
-		bl.text = "BRIGHTNESS:"
-		var blabels := ["1 Dark", "2 Medium", "3 Bright"]
-		for i in 3:
-			var bb := Button.new()
-			bb.text = blabels[i]
-			bb.add_theme_font_size_override("font_size", 14)
-			bb.focus_mode = Control.FOCUS_NONE
-			bb.position = Vector2(16 + i * 96, 726)
-			bb.custom_minimum_size = Vector2(90, 32)
-			bb.pressed.connect(_apply_brightness.bind(i + 1))
-			layer.add_child(bb)
+	# Stylized display font (Anton — heavy condensed) for toasts + the run timer.
+	var ui_font := FontFile.new()
+	var has_ui_font: bool = ui_font.load_dynamic_font("res://assets/anton.ttf") == OK
+	if has_ui_font:
+		_hud_toast.add_theme_font_override("font", ui_font)
+	# Run timer — top-left info panel (beside the level row) AND big bottom-right.
+	_hud_time_tl = _mk_label(layer, Vector2(196, 60), 18, Color(0.85, 0.9, 1.0))
+	_hud_time_br = _mk_label(layer, Vector2(1316, 748), 30, Color(0.92, 0.94, 1.0))
+	_hud_time_tl.text = "0:00"
+	_hud_time_br.text = "0:00"
+	if has_ui_font:
+		_hud_time_tl.add_theme_font_override("font", ui_font)
+		_hud_time_br.add_theme_font_override("font", ui_font)
 	# Boss health bar (top-centre, hidden until the guardian is engaged).
 	_hud_boss_root = Control.new()
 	_hud_boss_root.position = Vector2(522, 18)

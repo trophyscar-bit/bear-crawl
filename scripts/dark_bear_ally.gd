@@ -1,6 +1,6 @@
 extends CharacterBody2D
 
-# Dark Bear — a friendly COMPANION (not an enemy). He tags along a few metres off,
+# Finn — a friendly COMPANION (not an enemy). He tags along a few metres off,
 # repositioning around you like a second player (not trailing your exact path), and
 # mimics your weapon at half damage, firing at the nearest enemy.
 
@@ -41,11 +41,11 @@ func _physics_process(delta: float) -> void:
 	_retarget_t -= delta
 	if _retarget_t <= 0.0:
 		_retarget_t = randf_range(1.2, 2.3)
-		_offset = Vector2.from_angle(randf() * TAU) * randf_range(560.0, 780.0)
+		_offset = Vector2.from_angle(randf() * TAU) * randf_range(476.0, 663.0)   # ~15% closer
 	var target: Vector2 = ppos + _offset
 	var to: Vector2 = target - global_position
 	var far: float = global_position.distance_to(ppos)
-	var spd: float = speed + (far - 680.0) * 0.6   # speed up if he's lagging behind
+	var spd: float = speed + (far - 580.0) * 0.6   # speed up if he's lagging behind
 	spd = clampf(spd, 120.0, 520.0)
 	if to.length() > 10.0:
 		velocity = to.normalized() * spd

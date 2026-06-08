@@ -162,7 +162,7 @@ func _enemy_stations() -> Array:
 		{"title": "TEDDY BEAR  —  bomber", "kind": "enemy", "scene": TeddyBearScene},
 		{"title": "SKELETON  —  melee", "kind": "enemy", "scene": SkeletonScene},
 		{"title": "CREAM BEAR", "kind": "enemy", "scene": CreamBearScene},
-		{"title": "DARK BEAR  —  ALLY companion", "kind": "ally", "scene": DarkAllyScene, "open": true},
+		{"title": "FINN  —  ally companion", "kind": "ally", "scene": DarkAllyScene, "open": true},
 		{"title": "BOSS  —  spread + AOE", "kind": "boss", "scene": EnemyScene},
 	]
 

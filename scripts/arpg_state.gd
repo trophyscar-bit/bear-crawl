@@ -21,7 +21,7 @@ var weapon: Dictionary = {}
 var dungeon_path: String = "res://scenes/dungeon.tscn"
 var light_mode: int = 1   # which live lighting preset is active (persists across floors)
 var light_boost: int = 1  # 1-5 brightness pump on all light sources (persists)
-var brightness_level: int = 1  # dungeon darkness preset 1=dark 2=medium 3=bright (persists)
+var brightness_level: int = 2  # dungeon darkness preset 1=dark 2=medium 3=bright (persists)
 var enemy_bright: int = 1 # 1-3 enemy self-illumination (persists)
 var backrooms_pack: int = 5  # backrooms asset pack (locked to 5 — the chosen look)
 var no_projectile_glow: bool = false  # backrooms turns off the projectile glow

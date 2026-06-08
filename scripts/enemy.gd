@@ -254,8 +254,7 @@ func _physics_process(delta: float) -> void:
 				_aggro_t = AGGRO_MEMORY
 		_aggro_t = maxf(_aggro_t - delta, 0.0)
 		if _aggro_t <= 0.0:
-			velocity = velocity.lerp(Vector2.ZERO, 0.25)
-			move_and_slide()
+			_wander(delta)
 			return
 	# Re-roll personal chase offset every few seconds so each enemy doesn't
 	# converge to the exact same spot when kited.
@@ -667,6 +666,19 @@ func take_damage(amount: int) -> void:
 
 # For subclasses that override _physics_process (they don't run the base steering
 # dodge): ticks the dodge timers and returns a velocity to ADD this frame.
+var _wander_dir: Vector2 = Vector2.ZERO
+var _wander_t: float = 0.0
+
+func _wander(delta: float) -> void:
+	# No line of sight on the player — slowly amble in a random direction (with the
+	# odd pause) instead of standing frozen. New heading every few seconds.
+	_wander_t -= delta
+	if _wander_t <= 0.0:
+		_wander_t = randf_range(1.6, 3.6)
+		_wander_dir = Vector2.ZERO if randf() < 0.25 else Vector2.from_angle(randf() * TAU)
+	velocity = velocity.lerp(_wander_dir * speed * 0.32, 0.06)
+	move_and_slide()
+
 func _dodge_tick(delta: float) -> Vector2:
 	_hit_streak = maxf(0.0, _hit_streak - delta * 1.2)
 	if _dodge_time > 0.0:
