@@ -1604,10 +1604,11 @@ func _spawn_loot(pos: Vector2, item: Dictionary) -> void:
 		if b.is_in_group("player"):
 			# Clearly-weaker drops auto-sell for coins on contact — no pop-up nag.
 			if _weapon_is_junk(item):
-				var sell: int = ArpgState.weapon_sell_value(item)
+				# Trash auto-sells for a token amount only — not a farmable income.
+				var sell: int = mini(ArpgState.weapon_sell_value(item), 3)
 				ArpgState.gold += sell
 				ArpgState.emit_signal("stats_changed")
-				ArpgState.emit_signal("toast", "+%d gold (auto-sold weak drop)" % sell, Color(1.0, 0.85, 0.4))
+				ArpgState.emit_signal("toast", "+%d gold (scrapped weak drop)" % sell, Color(1.0, 0.85, 0.4))
 				if is_instance_valid(area):
 					area.queue_free()
 				return

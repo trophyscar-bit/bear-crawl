@@ -156,8 +156,8 @@ func _pick_archetype() -> Dictionary:
 func roll_weapon() -> Dictionary:
 	var w: Dictionary = _pick_archetype().duplicate(true)
 	var rar: int = roll_rarity()
-	var rmult: float = 1.0 + 0.22 * float(rar)                # gentle rarity scaling
-	var dmult: float = 1.0 + 0.12 * float(depth - 1)          # gentle depth scaling
+	var rmult: float = 1.0 + 0.14 * float(rar)                # rarity scaling (toned down)
+	var dmult: float = 1.0 + 0.07 * float(depth - 1)          # depth scaling (toned down)
 	w["dmg"] = int(ceil(float(w["dmg"]) * rmult * dmult))
 	w["speed"] = float(w["speed"]) * (1.0 + 0.04 * float(rar))
 	w["cooldown"] = maxf(0.08, float(w["cooldown"]) * (1.0 - 0.06 * float(rar)))
@@ -173,7 +173,7 @@ func _score(w: Dictionary) -> float:
 # rare drop you skip still feels worth something.
 func weapon_sell_value(w: Dictionary) -> int:
 	var rar: int = clampi(int(w.get("rarity", 0)), 0, 3)
-	return 4 + rar * 5 + depth * 2
+	return 2 + rar * 3 + depth
 
 # Effective stats for a weapon dict (folds in global run upgrades) — used by the
 # floor-pickup comparison cards so the numbers match what you'd actually deal.
@@ -210,11 +210,12 @@ func notify_kill(pos: Vector2) -> void:
 	if not active:
 		return
 	add_xp(2 + depth)
-	var g: int = randi_range(1, 2 + depth)
+	var g: int = randi_range(1, 2 + int(depth / 2))   # less per-kill gold
 	gold += g
 	emit_signal("stats_changed")
-	# Loot drop chance (weapons). Gold is implicit per kill above.
-	if randf() < 0.22:
+	# Loot drop chance (weapons). Lowered hard so the floor isn't paved with free
+	# coins (you could farm-sell trash drops into a full shop by floor 3).
+	if randf() < 0.10:
 		emit_signal("loot_dropped", pos, roll_weapon())
 
 func add_xp(amount: int) -> void:
@@ -256,13 +257,15 @@ func weapon_upgrade_options() -> Array:
 	]
 	if bool(weapon.get("ball", false)):
 		opts.append({"id": "w_bounce", "name": "Super Bounce", "desc": "+3 Bounces", "color": wcol})
-	else:
-		opts.append({"id": "w_count", "name": "Multi-Throw", "desc": "+1 Projectile", "color": wcol})
+	elif int(weapon.get("count_ups", 0)) < 1:
+		# +1 Projectile is a huge multiplicative DPS spike — offer it at most ONCE per
+		# weapon (stacking it to 4-5 shots was what broke the game).
+		opts.append({"id": "w_count", "name": "Multi-Throw", "desc": "+1 Projectile (one-time)", "color": wcol})
 	return opts
 
 func _weapon_upgrade_cost() -> int:
 	var lvl: int = int(weapon.get("lvl", 0))
-	return int(round((24.0 + lvl * 10.0) * (1.0 + 0.2 * float(depth - 1))))
+	return int(round((30.0 + lvl * 13.0) * (1.0 + 0.2 * float(depth - 1))))
 
 func generate_shop(_count: int = 5) -> Array:
 	var offers: Array = []
@@ -274,12 +277,14 @@ func generate_shop(_count: int = 5) -> Array:
 		var wo: Dictionary = wopts[i].duplicate(true)
 		wo["weapon_upgrade"] = true
 		wo["cost"] = wcost
+		if String(wo.get("id", "")) == "w_count":
+			wo["cost"] = int(round(float(wcost) * 2.5))   # premium price on the +projectile
 		wo["weapon_name"] = String(weapon.get("name", "Weapon"))
 		offers.append(wo)
 	# 3 global run upgrades.
 	var pool: Array = [
 		{"id": "maxhp",     "name": "Reinforced Stuffing", "desc": "+4 Max HP",          "color": Color(0.4, 0.9, 0.5)},
-		{"id": "dmg",       "name": "Sharper Toppings",     "desc": "+15% Damage (all)",  "color": Color(1.0, 0.5, 0.4)},
+		{"id": "dmg",       "name": "Sharper Toppings",     "desc": "+10% Damage (all)",  "color": Color(1.0, 0.5, 0.4)},
 		{"id": "firerate",  "name": "Greased Oven",         "desc": "+12% Fire Rate (all)", "color": Color(1.0, 0.85, 0.4)},
 		{"id": "crit",      "name": "Spicy Pepperoni",      "desc": "+10% Crit Chance",   "color": Color(1.0, 0.4, 0.7)},
 		{"id": "speed",     "name": "Roller Skates",        "desc": "+8% Move Speed",     "color": Color(0.5, 0.8, 1.0)},
@@ -311,14 +316,16 @@ func buy(item: Dictionary) -> bool:
 			"w_dmg":      weapon["dmg"] = int(weapon.get("dmg", 1)) + 1
 			"w_firerate": weapon["cooldown"] = maxf(0.07, float(weapon.get("cooldown", 0.34)) * 0.9)
 			"w_pierce":   weapon["pierce"] = int(weapon.get("pierce", 0)) + 1
-			"w_count":    weapon["count"] = int(weapon.get("count", 1)) + 1
+			"w_count":
+				weapon["count"] = int(weapon.get("count", 1)) + 1
+				weapon["count_ups"] = int(weapon.get("count_ups", 0)) + 1
 			"w_bounce":   weapon["bounces"] = int(weapon.get("bounces", 1)) + 3
 		weapon["lvl"] = int(weapon.get("lvl", 0)) + 1
 		emit_signal("weapon_changed", weapon)
 	else:
 		match id:
 			"maxhp":     bonus_maxhp += 4
-			"dmg":       dmg_mult += 0.15
+			"dmg":       dmg_mult += 0.10
 			"firerate":  cooldown_mult *= 0.88
 			"crit":      crit_chance = minf(crit_chance + 0.10, 0.75)
 			"speed":     speed_mult += 0.08
