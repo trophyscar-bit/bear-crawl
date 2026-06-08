@@ -72,14 +72,15 @@ func _on_request_completed(result: int, code: int, _headers: PackedStringArray, 
 		if result != HTTPRequest.RESULT_SUCCESS or code != 200:
 			emit_signal("status_changed", "Download failed", false)
 			return
-		_apply_update()
+		_prompt_restart()
 
 # --- download + self-replace ------------------------------------------------
 func download_and_install() -> void:
 	if _busy:
 		return
-	# In the editor (or if we never found an exe asset) just open the page.
-	if _exe_url == "" or not OS.has_feature("standalone"):
+	# No packaged exe to pull, or running from the Godot editor (can't swap a live
+	# binary) — just open the releases page instead.
+	if _exe_url == "" or OS.has_feature("editor"):
 		OS.shell_open(releases_url())
 		return
 	_busy = true
@@ -91,6 +92,23 @@ func download_and_install() -> void:
 		_busy = false
 		_http.download_file = ""
 		emit_signal("status_changed", "Download failed", false)
+
+func _prompt_restart() -> void:
+	# Download is on disk — ask before we close + relaunch.
+	emit_signal("status_changed", "Update v%s ready" % _latest_tag, true)
+	var dlg := ConfirmationDialog.new()
+	dlg.title = "Bear Crawl Update"
+	dlg.dialog_text = "Update v%s downloaded.\nRestart now to apply it?" % _latest_tag
+	dlg.ok_button_text = "Restart now"
+	dlg.cancel_button_text = "Later"
+	get_tree().root.add_child(dlg)
+	dlg.confirmed.connect(func() -> void:
+		dlg.queue_free()
+		_apply_update())
+	dlg.canceled.connect(func() -> void:
+		dlg.queue_free()
+		emit_signal("status_changed", "Update ready — restart to apply", true))
+	dlg.popup_centered()
 
 func _apply_update() -> void:
 	var exe := OS.get_executable_path()

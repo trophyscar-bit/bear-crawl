@@ -14,6 +14,11 @@ var _lunge_dir: Vector2 = Vector2.RIGHT
 func _ready() -> void:
 	super._ready()
 	_cool = randf_range(1.6, 2.8)
+	# The shared contact shadow sits too low for the four-legged hound (he looks
+	# like he's floating) — pull it up under his paws.
+	var sh := get_node_or_null("DropShadow") as Node2D
+	if sh != null:
+		sh.position.y -= 26.0
 
 func _physics_process(delta: float) -> void:
 	if _dying:
