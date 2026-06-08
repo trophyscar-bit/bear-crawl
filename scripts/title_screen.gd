@@ -86,22 +86,25 @@ func _ready() -> void:
 	if dev_btn != null:
 		(dev_btn as Button).pressed.connect(func() -> void:
 			get_tree().change_scene_to_file("res://scenes/level_select.tscn"))
-	# DEV TEST button — built in code so we don't touch the .tscn. Drops into the
-	# sandbox arena that demos every effect + enemy we've changed.
+	# DEV TEST button — top-right, just under the DEV MODE button.
 	var devtest_btn := Button.new()
 	devtest_btn.name = "DevTestButton"
-	devtest_btn.text = "🧪  DEV TEST"
-	devtest_btn.custom_minimum_size = $MenuHolder/Menu/StartButton.custom_minimum_size
-	devtest_btn.add_theme_font_size_override("font_size",
-		$MenuHolder/Menu/StartButton.get_theme_font_size("font_size"))
-	menu_vbox.add_child(devtest_btn)
-	menu_vbox.move_child(devtest_btn, $MenuHolder/Menu/StartButton.get_index() + 1)
+	devtest_btn.text = "🧪 DEV TEST"
+	devtest_btn.add_theme_font_size_override("font_size", 16)
+	devtest_btn.anchor_left = 1.0
+	devtest_btn.anchor_right = 1.0
+	devtest_btn.offset_left = -156.0
+	devtest_btn.offset_top = 84.0
+	devtest_btn.offset_right = -16.0
+	devtest_btn.offset_bottom = 120.0
+	add_child(devtest_btn)
 	devtest_btn.pressed.connect(func() -> void:
 		get_tree().change_scene_to_file("res://scenes/dev_test.tscn"))
 
+	_setup_version_ui()
+
 	_menu_buttons = [
 		$MenuHolder/Menu/StartButton,
-		devtest_btn,
 		$MenuHolder/Menu/DifficultyButton,
 		$MenuHolder/Menu/WorkshopButton,
 		$MenuHolder/Menu/OptionsButton,
@@ -380,6 +383,47 @@ func _update_stats_label() -> void:
 			var bal_v: Variant = ms.get("fluff")
 			if bal_v is int: fluff = bal_v
 	stats_label.text = "🐻 %d  defeated     🧶 %d  fluff" % [kills, fluff]
+
+var _update_btn: Button = null
+var _update_ready: bool = false
+
+func _setup_version_ui() -> void:
+	# Clean version label (top-right) + a tiny "check for updates" line under it.
+	var vlabel := get_node_or_null("VersionLabel") as Label
+	if vlabel != null:
+		vlabel.text = "v" + GameSettings.VERSION
+	_update_btn = Button.new()
+	_update_btn.name = "UpdateButton"
+	_update_btn.flat = true
+	_update_btn.text = "check for updates"
+	_update_btn.focus_mode = Control.FOCUS_NONE
+	_update_btn.add_theme_font_size_override("font_size", 11)
+	_update_btn.add_theme_color_override("font_color", Color(0.6, 0.55, 0.8, 0.7))
+	_update_btn.anchor_left = 1.0
+	_update_btn.anchor_right = 1.0
+	_update_btn.offset_left = -200.0
+	_update_btn.offset_top = 26.0
+	_update_btn.offset_right = -8.0
+	_update_btn.offset_bottom = 44.0
+	_update_btn.alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	add_child(_update_btn)
+	_update_btn.pressed.connect(_on_update_pressed)
+	Updater.status_changed.connect(_on_update_status)
+	Updater.check_for_updates()   # quiet auto-check on launch
+
+func _on_update_pressed() -> void:
+	if _update_ready:
+		Updater.download_and_install()   # downloads the new exe + self-restarts
+	else:
+		Updater.check_for_updates()
+
+func _on_update_status(msg: String, available: bool) -> void:
+	_update_ready = available
+	if not is_instance_valid(_update_btn):
+		return
+	_update_btn.text = ("⬇ " + msg) if available else msg
+	_update_btn.add_theme_color_override("font_color",
+		Color(0.5, 1.0, 0.6, 0.95) if available else Color(0.6, 0.55, 0.8, 0.7))
 
 func _on_start() -> void:
 	# Original v1 intro: fly out to the Ascension / loadout screen, which then
