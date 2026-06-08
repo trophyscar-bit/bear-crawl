@@ -46,6 +46,36 @@ func _flat(bg: Color, border_col: Color, border: int, radius: int, pad: int) -> 
 	sb.content_margin_top = pad; sb.content_margin_bottom = pad
 	return sb
 
+# ── framed wood-UI helpers (Kenney RPG UI, CC0) ──────────────────────────────
+func _ui_tex(path: String) -> Texture2D:
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return null
+	var img := Image.new()
+	if img.load_png_from_buffer(f.get_buffer(f.get_length())) == OK:
+		return ImageTexture.create_from_image(img)
+	return null
+
+func _tex_box(path: String, tmargin: int, cmargin: int) -> StyleBox:
+	var t := _ui_tex(path)
+	if t == null:
+		return _flat(PANEL_BG, GOLD.darkened(0.2), 2, 12, cmargin)   # fallback
+	var sb := StyleBoxTexture.new()
+	sb.texture = t
+	sb.set_texture_margin_all(tmargin)
+	sb.set_content_margin_all(cmargin)
+	return sb
+
+func _tex_button(b: Button, base: String, pressed: String, txt: Color = Color(1, 0.97, 0.9)) -> void:
+	b.add_theme_stylebox_override("normal", _tex_box(base, 12, 8))
+	b.add_theme_stylebox_override("hover", _tex_box(pressed, 12, 8))
+	b.add_theme_stylebox_override("pressed", _tex_box(pressed, 12, 8))
+	b.add_theme_stylebox_override("focus", _tex_box(pressed, 12, 8))
+	b.add_theme_stylebox_override("disabled", _tex_box(base, 12, 8))
+	b.add_theme_color_override("font_color", txt)
+	b.add_theme_color_override("font_hover_color", Color(1, 1, 1))
+	b.add_theme_color_override("font_disabled_color", Color(0.5, 0.45, 0.4))
+
 func _label(text: String, size: int, color: Color, bold_outline: bool = false) -> Label:
 	var l := Label.new()
 	l.text = text
@@ -86,7 +116,7 @@ func _build_ui() -> void:
 	add_child(center)
 
 	var window := PanelContainer.new()
-	window.add_theme_stylebox_override("panel", _flat(PANEL_BG, Color(0.78, 0.64, 0.36, 0.55), 2, 16, 30))
+	window.add_theme_stylebox_override("panel", _tex_box("res://assets/ui/panel_brown.png", 18, 34))
 	center.add_child(window)
 
 	var root := VBoxContainer.new()
@@ -101,7 +131,7 @@ func _build_ui() -> void:
 	root.add_child(sub)
 
 	var pill := PanelContainer.new()
-	pill.add_theme_stylebox_override("panel", _flat(Color(0.16, 0.14, 0.09), GOLD.darkened(0.2), 1, 20, 8))
+	pill.add_theme_stylebox_override("panel", _tex_box("res://assets/ui/panelInset_brown.png", 14, 10))
 	pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_gold_label = _label("", 22, GOLD)
 	pill.add_child(_gold_label)
@@ -119,7 +149,7 @@ func _build_ui() -> void:
 	descend.custom_minimum_size = Vector2(380, 54)
 	descend.add_theme_font_size_override("font_size", 24)
 	descend.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_accent_button(descend, GOLD)
+	_tex_button(descend, "res://assets/ui/buttonLong_brown.png", "res://assets/ui/buttonLong_brown_pressed.png")
 	descend.pressed.connect(_descend)
 	root.add_child(descend)
 	descend.grab_focus()
@@ -130,12 +160,11 @@ func _make_card(index: int) -> Control:
 	var accent: Color = offer.get("color", Color(0.6, 0.5, 0.9))
 	var is_weapon: bool = bool(offer.get("weapon_upgrade", false))
 
-	# Clean dark card (rarity/accent border) — no wood frame.
+	# Parchment-framed card (Kenney RPG UI).
 	var card := PanelContainer.new()
 	card.custom_minimum_size = Vector2(208, 284)
 	card.pivot_offset = Vector2(104, 142)
-	var border := accent.darkened(0.2) if is_weapon else Color(0.30, 0.32, 0.40)
-	card.add_theme_stylebox_override("panel", _flat(CARD_BG, border, 2, 12, 14))
+	card.add_theme_stylebox_override("panel", _tex_box("res://assets/ui/panelInset_beige.png", 16, 16))
 	card.mouse_filter = Control.MOUSE_FILTER_PASS
 	card.mouse_entered.connect(func() -> void: _hover(card, true))
 	card.mouse_exited.connect(func() -> void: _hover(card, false))
@@ -145,8 +174,11 @@ func _make_card(index: int) -> Control:
 	vb.alignment = BoxContainer.ALIGNMENT_BEGIN
 	card.add_child(vb)
 
+	# Dark text reads on the parchment card.
+	var dark_txt := Color(0.18, 0.12, 0.06)
+	var dark_mute := Color(0.40, 0.32, 0.22)
 	# badge (WEAPON vs RUN)
-	var badge := _label("⚔ WEAPON" if is_weapon else "◆ RUN", 12, accent if is_weapon else MUTE)
+	var badge := _label("⚔ WEAPON" if is_weapon else "◆ RUN", 12, accent.darkened(0.45) if is_weapon else dark_mute)
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vb.add_child(badge)
 
@@ -159,18 +191,18 @@ func _make_card(index: int) -> Control:
 	orb.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	vb.add_child(orb)
 
-	var name_l := _label(String(offer.get("name", "?")), 19, TXT)
+	var name_l := _label(String(offer.get("name", "?")), 19, dark_txt)
 	name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vb.add_child(name_l)
 
-	var desc_l := _label(String(offer.get("desc", "")), 14, MUTE)
+	var desc_l := _label(String(offer.get("desc", "")), 14, dark_mute)
 	desc_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	desc_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	vb.add_child(desc_l)
 
 	if is_weapon:
-		var wname := _label("› %s" % String(offer.get("weapon_name", "")), 12, accent.lightened(0.1))
+		var wname := _label("› %s" % String(offer.get("weapon_name", "")), 12, accent.darkened(0.35))
 		wname.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		vb.add_child(wname)
 
@@ -181,8 +213,8 @@ func _make_card(index: int) -> Control:
 	var buy := Button.new()
 	buy.text = "⛁ %d" % int(offer.get("cost", 0))
 	buy.add_theme_font_size_override("font_size", 19)
-	buy.custom_minimum_size = Vector2(0, 42)
-	_accent_button(buy, accent)
+	buy.custom_minimum_size = Vector2(0, 44)
+	_tex_button(buy, "res://assets/ui/buttonLong_brown.png", "res://assets/ui/buttonLong_brown_pressed.png", GOLD)
 	buy.pressed.connect(_buy.bind(index))
 	vb.add_child(buy)
 	_buy_buttons.append(buy)
