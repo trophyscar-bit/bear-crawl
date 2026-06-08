@@ -134,13 +134,14 @@ func _starter_weapon() -> Dictionary:
 
 # ── loot generation ────────────────────────────────────────────────────────
 func roll_rarity() -> int:
-	# Deeper floors skew rarer.
+	# Deeper floors skew rarer. Floor 1 is now mostly commons (~76%) so a Magic+
+	# isn't a near-guaranteed floor-1 power spike; rarity ramps hard with depth.
 	var r: float = randf()
 	var d: float = float(depth)
-	if r < 0.04 + d * 0.012: return 3
-	if r < 0.16 + d * 0.02:  return 2
-	if r < 0.45 + d * 0.02:  return 1
-	return 0
+	if r < 0.005 + d * 0.012: return 3   # legendary  (floor1 ~1.7%)
+	if r < 0.05 + d * 0.025:  return 2   # rare       (floor1 ~7.5%)
+	if r < 0.20 + d * 0.045:  return 1   # magic      (floor1 ~24%)
+	return 0                              # common     (floor1 ~76%)
 
 func _pick_archetype() -> Dictionary:
 	# Weighted pick — archetypes default to weight 1.0; gimmick weapons can be rarer.

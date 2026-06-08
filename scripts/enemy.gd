@@ -105,6 +105,28 @@ var _unstuck_remaining: float = 0.0
 const STUCK_PIN_TIME: float = 0.22   # react sooner to being pinned
 const STUCK_ESCAPE_TIME: float = 0.5
 const STUCK_MIN_MOVEMENT: float = 0.6
+# Universal pinned-on-geometry monitor (runs for EVERY enemy regardless of which
+# movement code it uses — base chase, wander, or a custom subclass).
+var _mon_last: Vector2 = Vector2.ZERO
+var _mon_stuck: float = 0.0
+
+func _process(delta: float) -> void:
+	if _dying:
+		return
+	var moved: float = global_position.distance_to(_mon_last)
+	_mon_last = global_position
+	# Wants to move (has velocity) but isn't actually moving → it's wedged on a wall
+	# corner/prop. Shove it sideways (perpendicular to its heading) to slide it free.
+	if velocity.length() > 22.0 and moved < 0.35:
+		_mon_stuck += delta
+		if _mon_stuck >= 0.5:
+			_mon_stuck = 0.0
+			var perp: Vector2 = Vector2(-velocity.y, velocity.x).normalized()
+			if randf() < 0.5:
+				perp = -perp
+			global_position += perp * 18.0
+	else:
+		_mon_stuck = 0.0
 
 var _dying: bool = false
 var _death_time: float = 0.0

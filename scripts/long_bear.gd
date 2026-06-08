@@ -10,6 +10,7 @@ var _acid_t: float = 0.0
 const STANDOFF: float = 215.0    # the ring he tries to hold around you
 var _orbit: float = 0.0          # idle sweep so he keeps crawling when you stop
 var _facing_dir: Vector2 = Vector2.RIGHT
+var _crawl_t: float = 0.0        # inchworm squish phase
 
 func _physics_process(delta: float) -> void:
 	if _dying:
@@ -45,8 +46,19 @@ func _physics_process(delta: float) -> void:
 	# Smoothed momentum (no instant velocity snaps) = organic crawl.
 	velocity = velocity.lerp(target_vel, 5.0 * delta)
 	move_and_slide()
-	if is_instance_valid(_rig) and absf(velocity.x) > 4.0:
-		_rig.scale.x = absf(_rig.scale.x) * (1.0 if velocity.x > 0.0 else -1.0)
+	# Crawl squish — inchworm along his length: stretch long+thin, then pull in
+	# short+fat, scaled by how fast he's actually moving (like the player's squish).
+	if is_instance_valid(_rig):
+		var moving: float = clampf(velocity.length() / maxf(speed, 1.0), 0.0, 1.0)
+		_crawl_t += delta * (5.0 + moving * 7.0)
+		var amp: float = 0.18 * moving
+		var face: float = 1.0
+		if absf(velocity.x) > 4.0:
+			face = 1.0 if velocity.x > 0.0 else -1.0
+		elif _facing_dir.x < 0.0:
+			face = -1.0
+		var wobble: float = sin(_crawl_t)
+		_rig.scale = Vector2(rig_scale * (1.0 + wobble * amp) * face, rig_scale * (1.0 - wobble * amp * 0.7))
 	# Lay the acid trail as he crawls.
 	_acid_t -= delta
 	if _acid_t <= 0.0:
