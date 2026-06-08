@@ -86,17 +86,18 @@ func _ready() -> void:
 	if dev_btn != null:
 		(dev_btn as Button).pressed.connect(func() -> void:
 			get_tree().change_scene_to_file("res://scenes/level_select.tscn"))
-	# DEV TEST button — top-right, just under the DEV MODE button.
+	# DEV TEST button — top-right, directly under DEV MODE, matched size/font/align.
 	var devtest_btn := Button.new()
 	devtest_btn.name = "DevTestButton"
-	devtest_btn.text = "🧪 DEV TEST"
+	devtest_btn.text = "🧪  DEV TEST"
 	devtest_btn.add_theme_font_size_override("font_size", 16)
+	devtest_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	devtest_btn.anchor_left = 1.0
 	devtest_btn.anchor_right = 1.0
 	devtest_btn.offset_left = -156.0
-	devtest_btn.offset_top = 84.0
+	devtest_btn.offset_top = 102.0
 	devtest_btn.offset_right = -16.0
-	devtest_btn.offset_bottom = 120.0
+	devtest_btn.offset_bottom = 138.0
 	add_child(devtest_btn)
 	devtest_btn.pressed.connect(func() -> void:
 		get_tree().change_scene_to_file("res://scenes/dev_test.tscn"))
@@ -402,9 +403,9 @@ func _setup_version_ui() -> void:
 	_update_btn.anchor_left = 1.0
 	_update_btn.anchor_right = 1.0
 	_update_btn.offset_left = -200.0
-	_update_btn.offset_top = 26.0
+	_update_btn.offset_top = 34.0
 	_update_btn.offset_right = -8.0
-	_update_btn.offset_bottom = 44.0
+	_update_btn.offset_bottom = 52.0
 	_update_btn.alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	add_child(_update_btn)
 	_update_btn.pressed.connect(_on_update_pressed)
