@@ -405,11 +405,24 @@ func _spawn_player() -> void:
 		# Moderate penumbra. (28 was too much — it muddied/washed the whole aura. A
 		# 2D point light has an inherently crisp shadow edge; this is the clean middle.)
 		torch.shadow_filter_smooth = 10.0
-		# (No indirect "fill" light — it bled through walls. Walls block all light now.)
 		if theme == "backrooms":
 			# Flat fluorescent space is already fully lit — no player light aura.
 			torch.visible = false
 			torch.energy = 0.0
+		else:
+			# Dim, SHADOWLESS fill light so the cast-shadow edge isn't a hard black
+			# line — it reaches a little into the shadow so lit→dark is a soft
+			# gradient. Kept small + faint so wall bleed is negligible.
+			var fill := PointLight2D.new()
+			fill.name = "BearFill"
+			fill.texture = torch.texture
+			fill.color = Color(1.0, 0.82, 0.55)
+			fill.energy = 0.22
+			fill.texture_scale = torch.texture_scale * 0.72
+			fill.shadow_enabled = false
+			fill.z_index = torch.z_index
+			fill.blend_mode = Light2D.BLEND_MODE_ADD
+			_player.add_child(fill)
 
 func _spawn_boss() -> void:
 	_boss = EnemyScene.instantiate()
