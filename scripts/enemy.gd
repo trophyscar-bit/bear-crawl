@@ -670,9 +670,34 @@ func _spawn_ninja_star(dir: Vector2, glowing: bool) -> void:
 			s.add_child(g2)
 	get_parent().add_child(s)
 
-func take_damage(amount: int) -> void:
+func _spawn_damage_number(amount: int, crit: bool) -> void:
+	if amount <= 0:
+		return
+	var lbl := Label.new()
+	lbl.text = ("%d!" % amount) if crit else str(amount)
+	lbl.add_theme_font_size_override("font_size", 30 if crit else 20)
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.82, 0.18) if crit else Color(1.0, 0.96, 0.92))
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	lbl.add_theme_constant_override("outline_size", 4)
+	lbl.z_index = 60
+	lbl.z_as_relative = false
+	lbl.global_position = global_position + Vector2(randf_range(-14.0, 14.0), -38.0)
+	get_parent().add_child(lbl)
+	var rise: float = 46.0 + (18.0 if crit else 0.0)
+	var tw := lbl.create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(lbl, "global_position:y", lbl.global_position.y - rise, 0.6) \
+		.set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(lbl, "modulate:a", 0.0, 0.6).set_delay(0.22)
+	if crit:
+		lbl.scale = Vector2(0.5, 0.5)
+		tw.tween_property(lbl, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	tw.chain().tween_callback(lbl.queue_free)
+
+func take_damage(amount: int, crit: bool = false) -> void:
 	if _dying:
 		return
+	_spawn_damage_number(amount, crit)
 	if DevState.oneshot_kills:
 		health = 0
 		_begin_death()

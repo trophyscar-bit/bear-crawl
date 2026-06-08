@@ -227,7 +227,7 @@ func _trigger_aoe() -> void:
 		if (p as Node2D).global_position.distance_to(global_position) < aoe_range:
 			p.take_damage(aoe_damage)
 
-func take_damage(amount: int) -> void:
+func take_damage(amount: int, crit: bool = false) -> void:
 	if _dying or _hit_cooldown > 0.0:
 		return
 	# Dev one-shot toggle: skip HP math, go straight to death.

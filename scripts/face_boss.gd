@@ -272,7 +272,7 @@ func _spawn_mini_paw_rain(count: int) -> void:
 # Damage / phase / death
 # ---------------------------------------------------------------------------
 
-func take_damage(amount: int) -> void:
+func take_damage(amount: int, crit: bool = false) -> void:
 	if _dying or _hit_cooldown > 0.0:
 		return
 	if DevState.oneshot_kills:

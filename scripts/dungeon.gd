@@ -2152,12 +2152,9 @@ func _build_hud() -> void:
 		_hud_toast.add_theme_font_override("font", ui_font)
 	# Run timer — top-left info panel (beside the level row) AND big bottom-right.
 	_hud_time_tl = _mk_label(layer, Vector2(196, 60), 18, Color(0.85, 0.9, 1.0))
-	_hud_time_br = _mk_label(layer, Vector2(1316, 748), 30, Color(0.92, 0.94, 1.0))
 	_hud_time_tl.text = "0:00"
-	_hud_time_br.text = "0:00"
 	if has_ui_font:
 		_hud_time_tl.add_theme_font_override("font", ui_font)
-		_hud_time_br.add_theme_font_override("font", ui_font)
 	# Auto-sell toggle (bottom-left): drops of same-or-lower rarity auto-scrap on
 	# contact; higher-rarity drops still wait for an E pickup. Persists across floors.
 	if theme != "backrooms":

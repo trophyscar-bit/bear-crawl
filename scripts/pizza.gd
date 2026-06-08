@@ -3,6 +3,7 @@ extends Area2D
 @export var speed: float = 600.0
 @export var lifetime: float = 1.4
 @export var damage: int = 1
+var is_crit: bool = false   # set by the player on a crit roll → coloured damage number
 @export var spin_speed: float = 14.0
 @export var hostile: bool = false  # false = thrown by player; true = thrown at player
 @export var max_distance_after_bounce: float = 720.0  # half a room width (overridable per-instance)
@@ -145,7 +146,7 @@ func _on_body_entered(body: Node) -> void:
 			if _hit_ids.has(id):
 				return  # already hit this one (pierced)
 			_hit_ids[id] = true
-			body.take_damage(damage)
+			body.take_damage(damage, is_crit)
 			if apply_burn and body.has_method("apply_burn"):
 				body.apply_burn(BURN_DPS, BURN_DURATION)
 			if burst_on_impact:

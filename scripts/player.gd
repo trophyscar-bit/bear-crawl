@@ -472,6 +472,7 @@ func _spawn_pizza(dir: Vector2, hostile_flag: bool) -> void:
 			col = Color(1.0, 0.95, 0.4)            # crit = golden flash
 			if spr != null:
 				spr.scale *= 1.5
+			pizza.is_crit = true
 		pizza.damage = dmg
 		pizza.speed = float(w.get("speed", 600.0))
 		pizza.pierce = int(w.get("pierce", 0))

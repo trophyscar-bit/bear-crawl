@@ -111,11 +111,11 @@ func _fire_air_line(fwd: Vector2) -> void:
 	if is_instance_valid(_rig):
 		_rig.scale = Vector2(_rig_base_scale.x * 1.18, _rig_base_scale.y * 0.85)
 
-func take_damage(amount: int) -> void:
+func take_damage(amount: int, crit: bool = false) -> void:
 	# Dev one-shot bypasses the plastic deflect — straight to super, which
 	# routes to _begin_death().
 	if DevState.oneshot_kills:
-		super.take_damage(amount)
+		super.take_damage(amount, crit)
 		return
 	# Plastic bag deflects — first hit ignored if we're in the deflect window.
 	if _plastic_t > 0.0:
@@ -124,4 +124,4 @@ func take_damage(amount: int) -> void:
 		get_tree().create_timer(0.08).timeout.connect(_clear_hit_flash)
 		return
 	_plastic_t = PLASTIC_DEFLECT_DURATION
-	super.take_damage(amount)
+	super.take_damage(amount, crit)
