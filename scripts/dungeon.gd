@@ -296,6 +296,7 @@ var _wall_torch_pos: Array = []   # placed wall-sconce positions (for spacing)
 var _player_torch: PointLight2D = null
 var _player_fill: PointLight2D = null
 var _wall_occluders: Array = []   # all wall LightOccluder2D (for live reshaping)
+var _light_mode_label: Label = null
 
 func _apply_test_light(mode: int) -> void:
 	# DEV: flip between the three candidate fixes for the hard wall-shadow edge.
@@ -320,6 +321,9 @@ func _apply_test_light(mode: int) -> void:
 				if _ambient != null: _ambient.color = Color(0.30, 0.28, 0.34)
 	_reshape_occluders(inset)
 	_on_toast("LIGHT MODE %d" % mode, Color(0.7, 0.85, 1.0))
+	if _light_mode_label != null:
+		var names := {1: "no shadows", 2: "inset occluders", 3: "bright ambient"}
+		_light_mode_label.text = "LIGHT MODE %d — %s   (1/2/3)" % [mode, names.get(mode, "")]
 
 func _reshape_occluders(inset: float) -> void:
 	var h := tile / 2.0 - inset
@@ -2007,6 +2011,10 @@ func _build_hud() -> void:
 	var toast_font := FontFile.new()
 	if toast_font.load_dynamic_font("res://assets/luckiest_guy.ttf") == OK:
 		_hud_toast.add_theme_font_override("font", toast_font)
+	# DEV light-edge test hint (bottom-left), updates as you press 1/2/3.
+	if theme != "backrooms":
+		_light_mode_label = _mk_label(layer, Vector2(20, 766), 16, Color(0.7, 0.82, 1.0))
+		_light_mode_label.text = "LIGHT TEST — press 1 / 2 / 3"
 	# Boss health bar (top-centre, hidden until the guardian is engaged).
 	_hud_boss_root = Control.new()
 	_hud_boss_root.position = Vector2(522, 18)
