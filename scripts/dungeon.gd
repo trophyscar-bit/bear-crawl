@@ -2011,10 +2011,20 @@ func _build_hud() -> void:
 	var toast_font := FontFile.new()
 	if toast_font.load_dynamic_font("res://assets/luckiest_guy.ttf") == OK:
 		_hud_toast.add_theme_font_override("font", toast_font)
-	# DEV light-edge test hint (bottom-left), updates as you press 1/2/3.
+	# DEV light-edge test — three clickable buttons (bottom-left) + a status label.
 	if theme != "backrooms":
-		_light_mode_label = _mk_label(layer, Vector2(20, 766), 16, Color(0.7, 0.82, 1.0))
-		_light_mode_label.text = "LIGHT TEST — press 1 / 2 / 3"
+		_light_mode_label = _mk_label(layer, Vector2(16, 700), 15, Color(0.7, 0.82, 1.0))
+		_light_mode_label.text = "LIGHT EDGE TEST:"
+		var btn_labels := ["No-Shadow", "Inset", "Bright"]
+		for i in 3:
+			var b := Button.new()
+			b.text = btn_labels[i]
+			b.add_theme_font_size_override("font_size", 14)
+			b.focus_mode = Control.FOCUS_NONE
+			b.position = Vector2(16 + i * 112, 726)
+			b.custom_minimum_size = Vector2(106, 32)
+			b.pressed.connect(_apply_test_light.bind(i + 1))
+			layer.add_child(b)
 	# Boss health bar (top-centre, hidden until the guardian is engaged).
 	_hud_boss_root = Control.new()
 	_hud_boss_root.position = Vector2(522, 18)
