@@ -4,7 +4,7 @@ extends "res://scripts/critter.gd"
 # SIGHT on you; then it lights up (flashing) and RUSHES fast. Dies in one hit but
 # detonates a big blast — kill it at range or get clear.
 
-@export var blast_radius: float = 168.0
+@export var blast_radius: float = 252.0
 @export var blast_damage: int = 4
 var _flash_t: float = 0.0
 var _activated: bool = false

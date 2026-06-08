@@ -200,6 +200,13 @@ func _generate_bsp() -> void:
 		if max_room > 0:
 			rw = mini(rw, max_room)
 			rh = mini(rh, max_room)
+		# Soft-trim oversized rooms: past ~15 tiles, halve the excess so the biggest
+		# rooms feel a bit tighter without flattening all rooms to one size.
+		var soft: int = 15
+		if rw > soft:
+			rw = soft + (rw - soft) / 2
+		if rh > soft:
+			rh = soft + (rh - soft) / 2
 		var rx: int = p.position.x + randi_range(1, maxi(1, p.size.x - rw - 1))
 		var ry: int = p.position.y + randi_range(1, maxi(1, p.size.y - rh - 1))
 		var room := Rect2i(rx, ry, rw, rh)
@@ -535,9 +542,24 @@ func _spawn_room_ambiance() -> void:
 		amb.shadow_enabled = false
 		add_child(amb)
 
+func _pos_too_close(p: Vector2, others: Array, min_d: float) -> bool:
+	for o in others:
+		if p.distance_to(o) < min_d:
+			return true
+	return false
+
 func _spawn_braziers() -> void:
+	var placed: Array = []
+	var min_d: float = tile * 4.0   # never two candles within 4 blocks of each other
 	for _i in brazier_count:
 		var pos := _random_floor_world(tile * 3.0)
+		var tries: int = 0
+		while tries < 24 and _pos_too_close(pos, placed, min_d):
+			pos = _random_floor_world(tile * 3.0)
+			tries += 1
+		if _pos_too_close(pos, placed, min_d):
+			continue   # couldn't find a spot ≥4 blocks from the rest — skip this one
+		placed.append(pos)
 		var lamp := PointLight2D.new()
 		lamp.texture = LightTex
 		lamp.position = pos
