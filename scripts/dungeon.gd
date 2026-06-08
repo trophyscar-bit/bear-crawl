@@ -156,6 +156,7 @@ func _ready() -> void:
 	_apply_lighting_mode(1)   # Standard only — locked
 	if theme == "backrooms":
 		_build_backrooms_lighting()
+	_apply_brightness(ArpgState.brightness_level, false)   # restore chosen darkness preset
 
 # ── BSP generation ─────────────────────────────────────────────────────────
 func _generate_bsp() -> void:
@@ -743,7 +744,7 @@ const WAVE_UNLOCKS: Array = [
 	EnemyScene,           # 11 KK — stars + paw
 	PlushBrawlerScene,    # 12 charger
 ]
-const WAVE_UNLOCK_INTERVAL: float = 38.0
+const WAVE_UNLOCK_INTERVAL: float = 60.0   # a new enemy type joins every minute
 
 var _wave_t: float = 0.0
 var _wave_spawn_t: float = 0.0
@@ -777,7 +778,7 @@ func _wave_tick(delta: float) -> void:
 		_wave_spawn_batch()
 
 func _wave_unlocked_count() -> int:
-	var base: int = 2 + (ArpgState.depth - 1) * 2   # depth 1 opens with 2 types, +2 per floor
+	var base: int = 1 + (ArpgState.depth - 1) * 2   # floor 1: skeletons only for the 1st minute
 	return clampi(base + int(_wave_t / WAVE_UNLOCK_INTERVAL), 1, WAVE_UNLOCKS.size())
 
 func _wave_pick_scene() -> PackedScene:
@@ -832,6 +833,24 @@ func _configure_enemy(e: Node) -> void:
 		# Enemies hit a little harder the deeper you go (+1 contact dmg every 3 floors).
 		if "touch_damage" in e:
 			e.touch_damage = int(e.touch_damage) + int((ArpgState.depth - 1) / 3)
+
+func _apply_brightness(level: int, announce: bool = true) -> void:
+	# Overall darkness preset (1=dark/moody, 2=medium, 3=bright). Lifts the global
+	# ambient floor + the player aura together. Persists across floors via ArpgState.
+	level = clampi(level, 1, 3)
+	ArpgState.brightness_level = level
+	if theme == "backrooms":
+		return
+	var amb: Color = [Color(0.15, 0.14, 0.21), Color(0.27, 0.25, 0.32), Color(0.40, 0.38, 0.45)][level - 1]
+	var energy: float = [0.8, 1.05, 1.3][level - 1]
+	if _ambient != null:
+		_ambient.color = amb
+	if is_instance_valid(_player):
+		var torch := _player.get_node_or_null("BearLight") as PointLight2D
+		if torch != null:
+			torch.energy = energy
+	if announce:
+		_on_toast("BRIGHTNESS %d" % level, Color(1.0, 0.92, 0.6))
 
 func _difficulty_hp_mult() -> float:
 	# Easy/Medium/Hard now actually affect the dungeon's enemy toughness.
@@ -2012,6 +2031,20 @@ func _build_hud() -> void:
 	var toast_font := FontFile.new()
 	if toast_font.load_dynamic_font("res://assets/luckiest_guy.ttf") == OK:
 		_hud_toast.add_theme_font_override("font", toast_font)
+	# Brightness preset buttons (bottom-left): 1 Dark / 2 Medium / 3 Bright.
+	if theme != "backrooms":
+		var bl := _mk_label(layer, Vector2(16, 700), 15, Color(0.85, 0.82, 0.6))
+		bl.text = "BRIGHTNESS:"
+		var blabels := ["1 Dark", "2 Medium", "3 Bright"]
+		for i in 3:
+			var bb := Button.new()
+			bb.text = blabels[i]
+			bb.add_theme_font_size_override("font_size", 14)
+			bb.focus_mode = Control.FOCUS_NONE
+			bb.position = Vector2(16 + i * 96, 726)
+			bb.custom_minimum_size = Vector2(90, 32)
+			bb.pressed.connect(_apply_brightness.bind(i + 1))
+			layer.add_child(bb)
 	# Boss health bar (top-centre, hidden until the guardian is engaged).
 	_hud_boss_root = Control.new()
 	_hud_boss_root.position = Vector2(522, 18)
