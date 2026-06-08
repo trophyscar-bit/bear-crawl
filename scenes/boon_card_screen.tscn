@@ -1,0 +1,153 @@
+[gd_scene load_steps=5 format=3 uid="uid://bbooncard0001"]
+
+[ext_resource type="Script" path="res://scripts/boon_card_screen.gd" id="1"]
+
+[sub_resource type="StyleBoxFlat" id="Card_Normal"]
+bg_color = Color(0.10, 0.12, 0.22, 0.96)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.30, 0.32, 0.45, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+
+[sub_resource type="StyleBoxFlat" id="Card_Hover"]
+bg_color = Color(0.16, 0.18, 0.30, 1)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(1, 0.93, 0.42, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+
+[sub_resource type="Theme" id="CardTheme"]
+Button/styles/normal = SubResource("Card_Normal")
+Button/styles/hover = SubResource("Card_Hover")
+Button/styles/pressed = SubResource("Card_Hover")
+Button/styles/focus = SubResource("Card_Hover")
+Button/styles/disabled = SubResource("Card_Normal")
+
+[node name="BoonCardScreen" type="CanvasLayer"]
+process_mode = 3
+layer = 10
+script = ExtResource("1")
+
+[node name="Background" type="ColorRect" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+color = Color(0, 0.02, 0.08, 0.78)
+
+[node name="Center" type="CenterContainer" parent="."]
+anchor_right = 1.0
+anchor_bottom = 1.0
+
+[node name="Layout" type="VBoxContainer" parent="Center"]
+theme_override_constants/separation = 36
+
+[node name="Header" type="Label" parent="Center/Layout"]
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 44
+theme_override_colors/font_color = Color(1, 0.95, 0.92, 1)
+theme_override_colors/font_outline_color = Color(0.18, 0.08, 0.28, 1)
+theme_override_constants/outline_size = 6
+text = "CHOOSE A BOON"
+
+[node name="HBox" type="HBoxContainer" parent="Center/Layout"]
+theme_override_constants/separation = 28
+alignment = 1
+
+[node name="Card1" type="Button" parent="Center/Layout/HBox"]
+custom_minimum_size = Vector2(280, 200)
+theme = SubResource("CardTheme")
+
+[node name="V" type="VBoxContainer" parent="Center/Layout/HBox/Card1"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 18.0
+offset_top = 22.0
+offset_right = -18.0
+offset_bottom = -22.0
+mouse_filter = 2
+theme_override_constants/separation = 14
+alignment = 1
+
+[node name="Title" type="Label" parent="Center/Layout/HBox/Card1/V"]
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 26
+theme_override_colors/font_color = Color(1, 0.97, 0.72, 1)
+text = ""
+
+[node name="Desc" type="Label" parent="Center/Layout/HBox/Card1/V"]
+horizontal_alignment = 1
+autowrap_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.86, 0.88, 0.94, 0.95)
+text = ""
+
+[node name="Card2" type="Button" parent="Center/Layout/HBox"]
+custom_minimum_size = Vector2(280, 200)
+theme = SubResource("CardTheme")
+
+[node name="V" type="VBoxContainer" parent="Center/Layout/HBox/Card2"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 18.0
+offset_top = 22.0
+offset_right = -18.0
+offset_bottom = -22.0
+mouse_filter = 2
+theme_override_constants/separation = 14
+alignment = 1
+
+[node name="Title" type="Label" parent="Center/Layout/HBox/Card2/V"]
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 26
+theme_override_colors/font_color = Color(1, 0.97, 0.72, 1)
+text = ""
+
+[node name="Desc" type="Label" parent="Center/Layout/HBox/Card2/V"]
+horizontal_alignment = 1
+autowrap_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.86, 0.88, 0.94, 0.95)
+text = ""
+
+[node name="Card3" type="Button" parent="Center/Layout/HBox"]
+custom_minimum_size = Vector2(280, 200)
+theme = SubResource("CardTheme")
+
+[node name="V" type="VBoxContainer" parent="Center/Layout/HBox/Card3"]
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 18.0
+offset_top = 22.0
+offset_right = -18.0
+offset_bottom = -22.0
+mouse_filter = 2
+theme_override_constants/separation = 14
+alignment = 1
+
+[node name="Title" type="Label" parent="Center/Layout/HBox/Card3/V"]
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 26
+theme_override_colors/font_color = Color(1, 0.97, 0.72, 1)
+text = ""
+
+[node name="Desc" type="Label" parent="Center/Layout/HBox/Card3/V"]
+horizontal_alignment = 1
+autowrap_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_colors/font_color = Color(0.86, 0.88, 0.94, 0.95)
+text = ""
+
+[node name="Hint" type="Label" parent="Center/Layout"]
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.5, 0.5, 0.6, 0.7)
+text = "Arrows / AD to move   |   Enter / click to pick"

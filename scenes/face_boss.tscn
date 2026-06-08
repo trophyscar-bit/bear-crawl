@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bfaceboss00001"]
+
+[ext_resource type="Script" path="res://scripts/face_boss.gd" id="1"]
+
+[node name="FaceBoss" type="CharacterBody2D"]
+script = ExtResource("1")

@@ -1,0 +1,17 @@
+[gd_scene load_steps=4 format=3 uid="uid://bpbomb000001"]
+
+[ext_resource type="Script" path="res://scripts/pizza_bomb.gd" id="1"]
+[ext_resource type="Texture2D" path="res://assets/pizza_bomb.png" id="2"]
+
+[sub_resource type="CircleShape2D" id="BombShape"]
+radius = 14.0
+
+[node name="PizzaBomb" type="Area2D"]
+script = ExtResource("1")
+
+[node name="Sprite" type="Sprite2D" parent="."]
+texture = ExtResource("2")
+scale = Vector2(0.55, 0.55)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("BombShape")

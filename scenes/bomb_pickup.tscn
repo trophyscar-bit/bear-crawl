@@ -1,0 +1,19 @@
+[gd_scene load_steps=4 format=3 uid="uid://bbombp000001"]
+
+[ext_resource type="Script" path="res://scripts/weapon_pickup.gd" id="1"]
+[ext_resource type="Texture2D" path="res://assets/pizza_bomb.png" id="2"]
+
+[sub_resource type="CircleShape2D" id="PickupShape"]
+radius = 28.0
+
+[node name="BombPickup" type="Area2D"]
+script = ExtResource("1")
+weapon_type = "bomb"
+charges = 4
+
+[node name="Sprite" type="Sprite2D" parent="."]
+texture = ExtResource("2")
+scale = Vector2(0.55, 0.55)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("PickupShape")

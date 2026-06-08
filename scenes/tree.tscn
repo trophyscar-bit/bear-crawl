@@ -1,0 +1,26 @@
+[gd_scene load_steps=4 format=3 uid="uid://btree0000001"]
+
+[ext_resource type="Texture2D" path="res://assets/tree_deciduous.png" id="1"]
+
+[sub_resource type="CircleShape2D" id="TreeShape"]
+radius = 16.0
+
+[node name="Tree" type="StaticBody2D"]
+collision_layer = 0
+collision_mask = 0
+
+[node name="Shadow" type="Polygon2D" parent="."]
+position = Vector2(2, -4)
+color = Color(0, 0, 0, 0.35)
+polygon = PackedVector2Array(20, 0, 14.1, 4.9, 0, 7, -14.1, 4.9, -20, 0, -14.1, -4.9, 0, -7, 14.1, -4.9)
+
+[node name="Sprite" type="Sprite2D" parent="."]
+texture_filter = 1
+texture = ExtResource("1")
+scale = Vector2(2.5, 2.5)
+offset = Vector2(0, -31)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -6)
+shape = SubResource("TreeShape")
+disabled = true

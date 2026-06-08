@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://bbearbullet001"]
+
+[ext_resource type="Script" path="res://scripts/bear_bullet.gd" id="1"]
+
+[node name="BearBullet" type="Area2D" groups=["hostile_projectile"]]
+script = ExtResource("1")

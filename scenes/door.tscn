@@ -1,0 +1,82 @@
+[gd_scene load_steps=6 format=3 uid="uid://bdoor000001"]
+
+[ext_resource type="Script" path="res://scripts/door.gd" id="1"]
+[ext_resource type="Texture2D" path="res://assets/portal.png" id="2"]
+
+[sub_resource type="CircleShape2D" id="CircleShape2D_1"]
+radius = 56.0
+
+[sub_resource type="Animation" id="Anim_active"]
+resource_name = "active"
+length = 3.0
+loop_mode = 1
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath("Portal:rotation")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 3.0),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [0.0, 6.283185307179586]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("Portal:scale")
+tracks/1/interp = 2
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 1.5, 3.0),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [Vector2(0.6, 0.6), Vector2(0.7, 0.7), Vector2(0.6, 0.6)]
+}
+tracks/2/type = "value"
+tracks/2/imported = false
+tracks/2/enabled = true
+tracks/2/path = NodePath("Label:modulate")
+tracks/2/interp = 2
+tracks/2/loop_wrap = true
+tracks/2/keys = {
+"times": PackedFloat32Array(0, 1.5, 3.0),
+"transitions": PackedFloat32Array(1, 1, 1),
+"update": 0,
+"values": [Color(1, 0.92, 0.55, 0.7), Color(1, 0.97, 0.75, 1), Color(1, 0.92, 0.55, 0.7)]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimLib_1"]
+_data = {
+"active": SubResource("Anim_active")
+}
+
+[node name="Door" type="Area2D"]
+script = ExtResource("1")
+
+[node name="Portal" type="Sprite2D" parent="."]
+texture = ExtResource("2")
+scale = Vector2(0.6, 0.6)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("CircleShape2D_1")
+
+[node name="Label" type="Label" parent="."]
+offset_left = -110.0
+offset_top = 78.0
+offset_right = 110.0
+offset_bottom = 114.0
+horizontal_alignment = 1
+vertical_alignment = 1
+theme_override_font_sizes/font_size = 22
+theme_override_colors/font_color = Color(1, 0.92, 0.55, 1)
+theme_override_colors/font_outline_color = Color(0.2, 0.1, 0, 1)
+theme_override_constants/outline_size = 4
+text = "NEXT FLOOR"
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+autoplay = "active"
+libraries = {
+"": SubResource("AnimLib_1")
+}

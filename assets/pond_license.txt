@@ -1,0 +1,1 @@
+pond.png — extracted from terrain_atlas.png (LPC terrain atlas, 3x3 grass+pond block, tiles rows 12-14 cols 7-9), upscaled 4x + elliptical alpha feather.

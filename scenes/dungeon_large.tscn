@@ -1,0 +1,58 @@
+[gd_scene load_steps=4 format=3 uid="uid://bdungeon0002"]
+
+[ext_resource type="Script" path="res://scripts/dungeon.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/minimap.gd" id="2"]
+
+[sub_resource type="Environment" id="Env_Dung2"]
+background_mode = 0
+ambient_light_source = 0
+tonemap_mode = 3
+glow_enabled = true
+glow_intensity = 0.6
+glow_strength = 1.1
+glow_bloom = 0.1
+glow_blend_mode = 1
+glow_hdr_threshold = 0.85
+adjustment_enabled = true
+adjustment_brightness = 1.02
+adjustment_contrast = 1.12
+adjustment_saturation = 1.18
+
+[node name="Dungeon" type="Node2D"]
+y_sort_enabled = true
+script = ExtResource("1")
+grid_w = 52
+grid_h = 34
+bsp_levels = 5
+enemy_count = 26
+item_count = 8
+brazier_count = 12
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Env_Dung2")
+
+[node name="Ambient" type="CanvasModulate" parent="."]
+color = Color(0.14, 0.13, 0.19, 1)
+
+[node name="Camera2D" type="Camera2D" parent="."]
+
+[node name="MiniMapLayer" type="CanvasLayer" parent="."]
+layer = 6
+
+[node name="MiniMap" type="Control" parent="MiniMapLayer"]
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -224.0
+offset_top = 16.0
+offset_right = -16.0
+offset_bottom = 184.0
+mouse_filter = 2
+script = ExtResource("2")
+
+[node name="Hint" type="Label" parent="MiniMapLayer"]
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 640.0
+offset_bottom = 44.0
+theme_override_font_sizes/font_size = 18
+text = "LARGE DUNGEON — torch-lit · find the green exit · Esc to leave"

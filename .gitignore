@@ -1,0 +1,21 @@
+# Godot 4 ----------------------------------------------------------------
+.godot/
+/android/
+.import/
+
+# Exported builds (shipped via GitHub Releases, not committed) ------------
+dist/
+*.exe
+*.pck
+/BEAR_GAME.exe
+/BEAR_GAME.pck
+
+# Scratch / mock-render workspace (temp PNGs, test output) ----------------
+build/
+
+# OS / editor cruft ------------------------------------------------------
+Thumbs.db
+desktop.ini
+.DS_Store
+*.tmp
+*~

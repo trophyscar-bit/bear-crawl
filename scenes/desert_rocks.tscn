@@ -1,0 +1,26 @@
+[gd_scene load_steps=4 format=3 uid="uid://bdrocks00001"]
+
+[ext_resource type="Texture2D" path="res://assets/desert_rocks.png" id="1"]
+
+[sub_resource type="CircleShape2D" id="RockShape"]
+radius = 26.0
+
+[node name="DesertRocks" type="StaticBody2D"]
+collision_layer = 0
+collision_mask = 0
+
+[node name="Shadow" type="Polygon2D" parent="."]
+position = Vector2(3, -3)
+color = Color(0, 0, 0, 0.40)
+polygon = PackedVector2Array(32, 0, 22.6, 6.4, 0, 9, -22.6, 6.4, -32, 0, -22.6, -6.4, 0, -9, 22.6, -6.4)
+
+[node name="Sprite" type="Sprite2D" parent="."]
+texture_filter = 1
+texture = ExtResource("1")
+scale = Vector2(2.2, 2.2)
+offset = Vector2(0, -32)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -10)
+shape = SubResource("RockShape")
+disabled = true

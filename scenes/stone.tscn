@@ -1,0 +1,26 @@
+[gd_scene load_steps=4 format=3 uid="uid://bstone000001"]
+
+[ext_resource type="Texture2D" path="res://assets/stone_big.png" id="1"]
+
+[sub_resource type="CircleShape2D" id="StoneShape"]
+radius = 22.0
+
+[node name="Stone" type="StaticBody2D"]
+collision_layer = 0
+collision_mask = 0
+
+[node name="Shadow" type="Polygon2D" parent="."]
+position = Vector2(3, -3)
+color = Color(0, 0, 0, 0.40)
+polygon = PackedVector2Array(30, 0, 21.2, 6.4, 0, 9, -21.2, 6.4, -30, 0, -21.2, -6.4, 0, -9, 21.2, -6.4)
+
+[node name="Sprite" type="Sprite2D" parent="."]
+texture_filter = 1
+texture = ExtResource("1")
+scale = Vector2(2.5, 2.5)
+offset = Vector2(0, -15)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, -10)
+shape = SubResource("StoneShape")
+disabled = true

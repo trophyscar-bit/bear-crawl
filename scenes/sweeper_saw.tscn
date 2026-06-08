@@ -1,0 +1,27 @@
+[gd_scene load_steps=3 format=3 uid="uid://bsweep0000001"]
+
+[ext_resource type="Script" path="res://scripts/sweeper_saw.gd" id="1"]
+
+[sub_resource type="CircleShape2D" id="SawShape"]
+radius = 36.0
+
+[node name="SweeperSaw" type="Area2D"]
+script = ExtResource("1")
+
+[node name="Blade" type="Node2D" parent="."]
+scale = Vector2(1.4, 1.4)
+
+[node name="SawTeeth" type="Polygon2D" parent="Blade"]
+polygon = PackedVector2Array(0, -30, 8, -16, 22, -22, 16, -8, 30, 0, 16, 8, 22, 22, 8, 16, 0, 30, -8, 16, -22, 22, -16, 8, -30, 0, -16, -8, -22, -22, -8, -16)
+color = Color(0.78, 0.78, 0.85, 1)
+
+[node name="SawRim" type="Polygon2D" parent="Blade"]
+polygon = PackedVector2Array(0, -20, 14, -14, 20, 0, 14, 14, 0, 20, -14, 14, -20, 0, -14, -14)
+color = Color(0.45, 0.45, 0.52, 1)
+
+[node name="SawHub" type="Polygon2D" parent="Blade"]
+polygon = PackedVector2Array(-5, -5, 5, -5, 5, 5, -5, 5)
+color = Color(0.15, 0.15, 0.18, 1)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("SawShape")

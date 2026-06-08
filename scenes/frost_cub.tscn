@@ -1,0 +1,23 @@
+[gd_scene load_steps=2 format=3 uid="uid://bcritfrost_cubx"]
+
+[ext_resource type="Script" path="res://scripts/frost_cub.gd" id="1"]
+
+[sub_resource type="RectangleShape2D" id="RectangleShape2D_1"]
+size = Vector2(52, 48)
+
+[node name="FrostCub" type="CharacterBody2D"]
+script = ExtResource("1")
+tex_path = "res://assets/frost_cub.png"
+crit_hp = 7
+crit_speed = 48
+crit_touch = 1
+rig_scale = 0.52
+float_mode = true
+[node name="Rig" type="Node2D" parent="."]
+scale = Vector2(0.52, 0.52)
+
+[node name="Body" type="Sprite2D" parent="Rig"]
+texture_filter = 1
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("RectangleShape2D_1")
