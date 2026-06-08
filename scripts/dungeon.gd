@@ -797,12 +797,10 @@ func _wave_tick(delta: float) -> void:
 		_hud_time_tl.text = ts
 	if _hud_time_br != null:
 		_hud_time_br.text = ts
-	# Toast when a new enemy type joins the fray.
+	# A new enemy type joins the fray silently — no name pop-up.
 	var unlocked: int = _wave_unlocked_count()
 	if unlocked > _wave_last_unlocked:
 		_wave_last_unlocked = unlocked
-		var fn: String = WAVE_UNLOCKS[unlocked - 1].resource_path.get_file().get_basename()
-		_on_toast(WAVE_NAMES.get(fn, fn.to_upper()), Color(1.0, 0.55, 0.4))
 	_wave_spawn_t -= delta
 	if _wave_spawn_t <= 0.0:
 		_wave_spawn_t = _wave_interval()

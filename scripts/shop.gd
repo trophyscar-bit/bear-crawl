@@ -116,7 +116,9 @@ func _build_ui() -> void:
 	add_child(center)
 
 	var window := PanelContainer.new()
-	window.add_theme_stylebox_override("panel", _tex_box("res://assets/ui/panel_brown.png", 18, 34))
+	var wsb := _flat(Color(0.085, 0.095, 0.135), GOLD.darkened(0.25), 2, 16, 30)
+	wsb.shadow_color = Color(0, 0, 0, 0.5); wsb.shadow_size = 18
+	window.add_theme_stylebox_override("panel", wsb)
 	center.add_child(window)
 
 	var root := VBoxContainer.new()
@@ -131,7 +133,8 @@ func _build_ui() -> void:
 	root.add_child(sub)
 
 	var pill := PanelContainer.new()
-	pill.add_theme_stylebox_override("panel", _tex_box("res://assets/ui/panelInset_brown.png", 14, 10))
+	var psb := _flat(Color(0.05, 0.055, 0.08), GOLD.darkened(0.4), 1, 10, 12)
+	pill.add_theme_stylebox_override("panel", psb)
 	pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_gold_label = _label("", 22, GOLD)
 	pill.add_child(_gold_label)
@@ -149,7 +152,7 @@ func _build_ui() -> void:
 	descend.custom_minimum_size = Vector2(380, 54)
 	descend.add_theme_font_size_override("font_size", 24)
 	descend.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_tex_button(descend, "res://assets/ui/buttonLong_brown.png", "res://assets/ui/buttonLong_brown_pressed.png")
+	_accent_button(descend, GOLD)
 	descend.pressed.connect(_descend)
 	root.add_child(descend)
 	descend.grab_focus()
@@ -160,63 +163,78 @@ func _make_card(index: int) -> Control:
 	var accent: Color = offer.get("color", Color(0.6, 0.5, 0.9))
 	var is_weapon: bool = bool(offer.get("weapon_upgrade", false))
 
-	# Parchment-framed card (Kenney RPG UI).
+	# Clean dark slate card with a rarity/accent-colored top header bar.
 	var card := PanelContainer.new()
-	card.custom_minimum_size = Vector2(208, 284)
-	card.pivot_offset = Vector2(104, 142)
-	card.add_theme_stylebox_override("panel", _tex_box("res://assets/ui/panelInset_beige.png", 16, 16))
+	card.custom_minimum_size = Vector2(210, 286)
+	card.pivot_offset = Vector2(105, 143)
+	var csb := _flat(CARD_BG, accent.darkened(0.15), 2, 12, 0)
+	card.add_theme_stylebox_override("panel", csb)
 	card.mouse_filter = Control.MOUSE_FILTER_PASS
 	card.mouse_entered.connect(func() -> void: _hover(card, true))
 	card.mouse_exited.connect(func() -> void: _hover(card, false))
 
 	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 6)
+	vb.add_theme_constant_override("separation", 0)
 	vb.alignment = BoxContainer.ALIGNMENT_BEGIN
 	card.add_child(vb)
 
-	# Dark text reads on the parchment card.
-	var dark_txt := Color(0.18, 0.12, 0.06)
-	var dark_mute := Color(0.40, 0.32, 0.22)
-	# badge (WEAPON vs RUN)
-	var badge := _label("⚔ WEAPON" if is_weapon else "◆ RUN", 12, accent.darkened(0.45) if is_weapon else dark_mute)
+	# Colored header strip — replaces the glow orb. Category + accent identity.
+	var head := PanelContainer.new()
+	var hsb := StyleBoxFlat.new()
+	hsb.bg_color = accent.darkened(0.32) if is_weapon else accent.darkened(0.45)
+	hsb.set_corner_radius_all(0)
+	hsb.corner_radius_top_left = 11; hsb.corner_radius_top_right = 11
+	hsb.content_margin_top = 8; hsb.content_margin_bottom = 8
+	hsb.content_margin_left = 10; hsb.content_margin_right = 10
+	head.add_theme_stylebox_override("panel", hsb)
+	var badge := _label("⚔  WEAPON" if is_weapon else "◆  RUN UPGRADE", 13, Color(1, 0.97, 0.9))
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	vb.add_child(badge)
+	head.add_child(badge)
+	vb.add_child(head)
 
-	# glowing accent icon orb
-	var orb := TextureRect.new()
-	orb.texture = GlowTex
-	orb.modulate = accent
-	orb.custom_minimum_size = Vector2(0, 64)
-	orb.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
-	orb.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-	vb.add_child(orb)
+	# Body with inner padding.
+	var body := MarginContainer.new()
+	body.add_theme_constant_override("margin_left", 14)
+	body.add_theme_constant_override("margin_right", 14)
+	body.add_theme_constant_override("margin_top", 14)
+	body.add_theme_constant_override("margin_bottom", 14)
+	vb.add_child(body)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 8)
+	body.add_child(col)
 
-	var name_l := _label(String(offer.get("name", "?")), 19, dark_txt)
+	var name_l := _label(String(offer.get("name", "?")), 20, accent.lightened(0.45))
 	name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(name_l)
+	col.add_child(name_l)
 
-	var desc_l := _label(String(offer.get("desc", "")), 14, dark_mute)
+	var rule := Panel.new()
+	rule.custom_minimum_size = Vector2(0, 2)
+	var rsb := StyleBoxFlat.new(); rsb.bg_color = accent.darkened(0.1); rsb.bg_color.a = 0.5
+	rule.add_theme_stylebox_override("panel", rsb)
+	col.add_child(rule)
+
+	var desc_l := _label(String(offer.get("desc", "")), 14, TXT)
 	desc_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	desc_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	vb.add_child(desc_l)
+	col.add_child(desc_l)
 
 	if is_weapon:
-		var wname := _label("› %s" % String(offer.get("weapon_name", "")), 12, accent.darkened(0.35))
+		var wname := _label("› %s" % String(offer.get("weapon_name", "")), 12, MUTE)
 		wname.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		vb.add_child(wname)
+		col.add_child(wname)
 
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	vb.add_child(spacer)
+	col.add_child(spacer)
 
 	var buy := Button.new()
 	buy.text = "⛁ %d" % int(offer.get("cost", 0))
 	buy.add_theme_font_size_override("font_size", 19)
 	buy.custom_minimum_size = Vector2(0, 44)
-	_tex_button(buy, "res://assets/ui/buttonLong_brown.png", "res://assets/ui/buttonLong_brown_pressed.png", GOLD)
+	_accent_button(buy, accent)
 	buy.pressed.connect(_buy.bind(index))
-	vb.add_child(buy)
+	col.add_child(buy)
 	_buy_buttons.append(buy)
 	return card
 
