@@ -292,7 +292,10 @@ func _spawn_floor() -> void:
 	add_child(f)
 	_bk_floor_node = f   # kept so the backrooms pack switcher can re-texture it
 
+var _wall_torch_pos: Array = []   # placed wall-sconce positions (for spacing)
+
 func _build_walls() -> void:
+	_wall_torch_pos.clear()
 	for y in _fh:
 		for x in _fw:
 			if not _wall[y][x]:
@@ -357,7 +360,11 @@ func _build_walls() -> void:
 			# Wall-mounted torch sconce on walls that face a room below — a warm
 			# flickering glow on the stone (atmospheric "lights on the wall").
 			if theme != "backrooms" and y + 1 < _fh and not _wall[y + 1][x] and randf() < 0.06:
-				_add_wall_torch(Vector2((x + 0.5) * tile, (y + 0.5) * tile + tile * 0.42), body, occ)
+				var tpos := Vector2((x + 0.5) * tile, (y + 0.5) * tile + tile * 0.42)
+				# Never cluster wall sconces — keep them ≥6 blocks apart.
+				if not _pos_too_close(tpos, _wall_torch_pos, tile * 6.0):
+					_wall_torch_pos.append(tpos)
+					_add_wall_torch(tpos, body, occ)
 
 func _touches_floor(x: int, y: int) -> bool:
 	var dirs: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
@@ -552,7 +559,7 @@ func _pos_too_close(p: Vector2, others: Array, min_d: float) -> bool:
 
 func _spawn_braziers() -> void:
 	var placed: Array = []
-	var min_d: float = tile * 4.0   # never two candles within 4 blocks of each other
+	var min_d: float = tile * 6.0   # never two candles within 6 blocks of each other
 	for _i in brazier_count:
 		var pos := _random_floor_world(tile * 3.0)
 		var tries: int = 0
@@ -1041,7 +1048,7 @@ func _process(delta: float) -> void:
 			_exit_node.visible = true
 		if _hud_boss_root != null:
 			_hud_boss_root.visible = false
-		_on_toast("Guardian slain — the descent opens!", Color(0.5, 1.0, 0.7))
+		_on_toast("Guardian slain — the descent opens!", Color(1.0, 0.85, 0.45))
 	if _minimap:
 		_minimap.queue_redraw()
 	if _hp_update.is_valid() and is_instance_valid(_player):

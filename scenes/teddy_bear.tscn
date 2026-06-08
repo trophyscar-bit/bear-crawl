@@ -9,7 +9,7 @@ size = Vector2(46, 44)
 script = ExtResource("1")
 tex_path = "res://assets/teddy_bear.png"
 crit_hp = 1
-crit_speed = 258
+crit_speed = 198
 crit_touch = 1
 rig_scale = 0.46
 
