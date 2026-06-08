@@ -20,6 +20,17 @@ func _ready() -> void:
 	$Dim/Center/Panel/VBox/LevelSelect.pressed.connect(_go.bind("res://scenes/level_select.tscn"))
 	$Dim/Center/Panel/VBox/MainMenu.pressed.connect(_go.bind("res://scenes/title_screen.tscn"))
 	$Dim/Center/Panel/VBox/Resume.grab_focus()
+	# Auto-sell toggle — an OPTION lives here now (was a HUD button before).
+	var vbo := $Dim/Center/Panel/VBox as VBoxContainer
+	var auto := CheckButton.new()
+	auto.name = "AutoSell"
+	auto.text = "Auto-sell weaker/equal loot"
+	auto.custom_minimum_size = Vector2(360, 48)
+	auto.button_pressed = ArpgState.auto_sell_rarity
+	auto.add_theme_font_size_override("font_size", 20)
+	auto.toggled.connect(func(on: bool) -> void: ArpgState.auto_sell_rarity = on)
+	vbo.add_child(auto)
+	vbo.move_child(auto, 1)
 	# Dev Tools — only if the current scene exposes them (the dungeon does).
 	var scene := get_tree().current_scene
 	if scene != null and scene.has_method("dev_heal"):

@@ -467,11 +467,12 @@ func _spawn_exit() -> void:
 	glow.energy = 1.4
 	glow.texture_scale = 1.6
 	area.add_child(glow)
-	# Spiral staircase going down — a circle on the floor (replaces the old cube).
+	# Spiral staircase going down — bigger, detailed stairwell sprite.
 	var stairs := Sprite2D.new()
-	stairs.texture = StairsTex
+	var st_tex: Texture2D = _load_tex_mip("res://assets/stairs_down_v2.png")
+	stairs.texture = st_tex if st_tex != null else StairsTex
 	stairs.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	stairs.scale = Vector2(0.8, 0.8)
+	stairs.scale = Vector2(0.66, 0.66)   # ~2× the old footprint
 	stairs.z_index = -2          # sits on the floor, under the player
 	area.add_child(stairs)
 	# Slow rotation so the stairwell feels alive.
@@ -2197,10 +2198,52 @@ func _show_level_up() -> void:
 	title.anchor_left = 0.0; title.anchor_right = 1.0
 	title.offset_top = 150.0
 	layer.add_child(title)
+	# ── current-stats panel (left) — hovering a card previews its effect ──────────
+	var sp := PanelContainer.new()
+	var spsb := StyleBoxFlat.new()
+	spsb.bg_color = Color(0.07, 0.07, 0.11, 0.96)
+	spsb.set_border_width_all(2); spsb.border_color = Color(0.5, 0.55, 0.7, 0.7)
+	spsb.set_corner_radius_all(12); spsb.set_content_margin_all(16)
+	sp.add_theme_stylebox_override("panel", spsb)
+	sp.position = Vector2(46, 392)
+	sp.custom_minimum_size = Vector2(258, 0)
+	layer.add_child(sp)
+	var spv := VBoxContainer.new()
+	spv.add_theme_constant_override("separation", 9)
+	sp.add_child(spv)
+	var sphdr := Label.new()
+	sphdr.text = "YOUR  STATS"
+	sphdr.add_theme_font_size_override("font_size", 20)
+	sphdr.add_theme_color_override("font_color", Color(0.95, 0.86, 0.5))
+	spv.add_child(sphdr)
+	var hp_now: int = int(_player.max_health) if is_instance_valid(_player) and "max_health" in _player else 0
+	var stat_defs: Array = [
+		["dmg",   "Damage",     "%d" % ArpgState.weapon_damage()],
+		["rate",  "Fire Rate",  "%.2f/s" % (1.0 / ArpgState.weapon_cooldown())],
+		["crit",  "Crit",       "%d%%" % int(ArpgState.crit_chance * 100.0)],
+		["shots", "Shots",      "%d" % ArpgState.weapon_count()],
+		["hp",    "Max HP",     "%d" % hp_now],
+		["speed", "Move Speed", "+%d%%" % int((ArpgState.speed_mult - 1.0) * 100.0)],
+	]
+	var vlabels: Dictionary = {}
+	var base_text: Dictionary = {}
+	for sd in stat_defs:
+		var line := HBoxContainer.new()
+		var kl := Label.new()
+		kl.text = String(sd[1]); kl.add_theme_font_size_override("font_size", 16)
+		kl.add_theme_color_override("font_color", Color(0.7, 0.73, 0.82))
+		kl.custom_minimum_size = Vector2(140, 0)
+		line.add_child(kl)
+		var vl := Label.new()
+		vl.text = String(sd[2]); vl.add_theme_font_size_override("font_size", 16)
+		vl.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0))
+		line.add_child(vl)
+		spv.add_child(line)
+		vlabels[String(sd[0])] = vl
+		base_text[String(sd[0])] = String(sd[2])
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 28)
-	# 3×240 + 2×28 = 776 wide → centre on a 1440 viewport.
-	row.position = Vector2(332, 410)
+	row.position = Vector2(356, 410)
 	layer.add_child(row)
 	for opt in opts:
 		var card := Button.new()
@@ -2244,6 +2287,19 @@ func _show_level_up() -> void:
 			pl.add_theme_color_override("font_color", Color(0.62, 0.68, 0.78))
 			pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			vb.add_child(pl)
+		# Hover → light up the affected stat in the panel with its new value.
+		var chg: Array = _levelup_change(opt)
+		var ck: String = String(chg[0])
+		card.mouse_entered.connect(func() -> void:
+			if ck != "" and vlabels.has(ck):
+				var v2 := vlabels[ck] as Label
+				v2.text = "%s → %s" % [base_text[ck], chg[1]]
+				v2.add_theme_color_override("font_color", col))
+		card.mouse_exited.connect(func() -> void:
+			if ck != "" and vlabels.has(ck):
+				var v2 := vlabels[ck] as Label
+				v2.text = String(base_text[ck])
+				v2.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0)))
 		card.pressed.connect(_pick_level_up.bind(layer, opt))
 		row.add_child(card)
 
@@ -2265,6 +2321,24 @@ func _upgrade_preview(opt: Dictionary) -> String:
 		"w_count":    return "Shots  %d → %d" % [ArpgState.weapon_count(), ArpgState.weapon_count() + 1]
 		"back_shot":  return "Also fires behind you"
 	return ""
+
+# Which stat a level-up card changes, and its new value — drives the hover
+# preview on the YOUR STATS panel. Returns ["", ""] for cards with no tracked stat.
+func _levelup_change(opt: Dictionary) -> Array:
+	var w: Dictionary = ArpgState.weapon
+	var cur_dmg: int = ArpgState.weapon_damage()
+	var hp_now: int = int(_player.max_health) if is_instance_valid(_player) and "max_health" in _player else 0
+	match String(opt.get("id", "")):
+		"w_dmg":      return ["dmg", "%d" % (cur_dmg + 1)]
+		"w_dmg2":     return ["dmg", "%d" % (cur_dmg + 2)]
+		"dmg":        return ["dmg", "%d" % int(ceil(float(w.get("dmg", 1)) * (ArpgState.dmg_mult + 0.10)))]
+		"firerate":   return ["rate", "%.2f/s" % (1.0 / maxf(0.06, ArpgState.weapon_cooldown() * 0.88))]
+		"w_firerate": return ["rate", "%.2f/s" % (1.0 / maxf(0.06, ArpgState.weapon_cooldown() * 0.9))]
+		"crit":       return ["crit", "%d%%" % int(minf(ArpgState.crit_chance + 0.10, 0.75) * 100.0)]
+		"maxhp":      return ["hp", "%d" % (hp_now + 4)]
+		"speed":      return ["speed", "+%d%%" % int((ArpgState.speed_mult + 0.08 - 1.0) * 100.0)]
+		"w_count":    return ["shots", "%d" % (ArpgState.weapon_count() + 1)]
+	return ["", ""]
 
 func _pick_level_up(layer: CanvasLayer, opt: Dictionary) -> void:
 	ArpgState.apply_upgrade(opt)
@@ -2320,22 +2394,7 @@ func _build_hud() -> void:
 	_hud_time_tl.text = "0:00"
 	if has_ui_font:
 		_hud_time_tl.add_theme_font_override("font", ui_font)
-	# Auto-sell toggle (bottom-left): drops of same-or-lower rarity auto-scrap on
-	# contact; higher-rarity drops still wait for an E pickup. Persists across floors.
-	if theme != "backrooms":
-		var asb := Button.new()
-		asb.add_theme_font_size_override("font_size", 13)
-		asb.focus_mode = Control.FOCUS_NONE
-		asb.position = Vector2(16, 760)
-		asb.custom_minimum_size = Vector2(214, 30)
-		var refresh_as := func() -> void:
-			asb.text = "Auto-sell ≤ rarity: %s" % ("ON" if ArpgState.auto_sell_rarity else "OFF")
-		refresh_as.call()
-		asb.pressed.connect(func() -> void:
-			ArpgState.auto_sell_rarity = not ArpgState.auto_sell_rarity
-			refresh_as.call()
-			_on_toast("Auto-sell same-rarity %s" % ("ON" if ArpgState.auto_sell_rarity else "OFF"), Color(1.0, 0.9, 0.6)))
-		layer.add_child(asb)
+	# (Auto-sell toggle moved to the pause menu — press Esc → Options.)
 	# Boss health bar (top-centre, hidden until the guardian is engaged).
 	_hud_boss_root = Control.new()
 	_hud_boss_root.position = Vector2(522, 18)

@@ -58,6 +58,39 @@ func _label(text: String, size: int, color: Color, outline: bool = false) -> Lab
 		l.add_theme_constant_override("outline_size", 5)
 	return l
 
+# ── framed wood-UI buttons (Kenney RPG UI, CC0) — for the fancy footer buttons ─
+func _ui_tex(path: String) -> Texture2D:
+	if ResourceLoader.exists(path):
+		var t: Texture2D = load(path) as Texture2D
+		if t != null:
+			return t
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return null
+	var img := Image.new()
+	if img.load_png_from_buffer(f.get_buffer(f.get_length())) == OK:
+		return ImageTexture.create_from_image(img)
+	return null
+
+func _tex_box(path: String) -> StyleBox:
+	var t := _ui_tex(path)
+	if t == null:
+		return _flat(CARD_BG, GOLD.darkened(0.2), 2, 10, 10)
+	var sb := StyleBoxTexture.new()
+	sb.texture = t
+	sb.set_texture_margin_all(14)
+	sb.set_content_margin_all(10)
+	return sb
+
+func _tex_button(b: Button, base: String, pressed: String, txt: Color = Color(1, 0.97, 0.9)) -> void:
+	b.add_theme_stylebox_override("normal", _tex_box(base))
+	b.add_theme_stylebox_override("hover", _tex_box(pressed))
+	b.add_theme_stylebox_override("pressed", _tex_box(pressed))
+	b.add_theme_stylebox_override("focus", _tex_box(pressed))
+	b.add_theme_stylebox_override("disabled", _tex_box(base))
+	b.add_theme_color_override("font_color", txt)
+	b.add_theme_color_override("font_hover_color", Color(1, 1, 1))
+
 func _accent_button(b: Button, accent: Color) -> void:
 	var base := accent.darkened(0.55); base.a = 1.0
 	var hov := accent.darkened(0.30)
@@ -131,23 +164,27 @@ func _build() -> void:
 	for id in WEAPON_IDS:
 		wrow.add_child(_make_weapon_card(id))
 
-	# Bottom buttons.
+	# Bottom buttons — framed wood UI so they read as a finished footer.
+	var spacer := Control.new()
+	spacer.custom_minimum_size = Vector2(0, 6)
+	root.add_child(spacer)
 	var btmrow := HBoxContainer.new()
 	btmrow.alignment = BoxContainer.ALIGNMENT_CENTER
-	btmrow.add_theme_constant_override("separation", 16)
+	btmrow.add_theme_constant_override("separation", 24)
 	root.add_child(btmrow)
 	var reset := Button.new()
-	reset.text = "RESET  (refund Fluff)"
-	reset.custom_minimum_size = Vector2(260, 50)
-	reset.add_theme_font_size_override("font_size", 18)
-	_accent_button(reset, Color(0.8, 0.45, 0.45))
+	reset.text = "RESET  ·  refund Fluff"
+	reset.custom_minimum_size = Vector2(300, 58)
+	reset.add_theme_font_size_override("font_size", 19)
+	reset.focus_mode = Control.FOCUS_NONE
+	_tex_button(reset, "res://assets/ui/buttonLong_beige.png", "res://assets/ui/buttonLong_beige_pressed.png", Color(0.32, 0.2, 0.12))
 	reset.pressed.connect(_on_reset)
 	btmrow.add_child(reset)
 	var back := Button.new()
-	back.text = "◄  BACK"
-	back.custom_minimum_size = Vector2(220, 50)
-	back.add_theme_font_size_override("font_size", 20)
-	_accent_button(back, GOLD)
+	back.text = "BACK"
+	back.custom_minimum_size = Vector2(260, 58)
+	back.add_theme_font_size_override("font_size", 22)
+	_tex_button(back, "res://assets/ui/buttonLong_brown.png", "res://assets/ui/buttonLong_brown_pressed.png", Color(1, 0.95, 0.82))
 	back.pressed.connect(_on_back)
 	btmrow.add_child(back)
 	back.grab_focus()
