@@ -417,8 +417,8 @@ func _spawn_player() -> void:
 			fill.name = "BearFill"
 			fill.texture = torch.texture
 			fill.color = Color(1.0, 0.82, 0.55)
-			fill.energy = 0.38
-			fill.texture_scale = torch.texture_scale * 0.95
+			fill.energy = 1.8     # DIAGNOSTIC: cranked hard to confirm this is the knob
+			fill.texture_scale = torch.texture_scale * 1.4
 			fill.shadow_enabled = false
 			fill.z_index = torch.z_index
 			fill.blend_mode = Light2D.BLEND_MODE_ADD
