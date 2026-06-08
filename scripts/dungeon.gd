@@ -1905,10 +1905,15 @@ func _build_hud() -> void:
 	_hud_level = _mk_label(layer, Vector2(24, 60), 19, Color(1.0, 0.95, 0.6))
 	_hud_weapon = _mk_label(layer, Vector2(24, 86), 15, Color(0.8, 0.85, 1.0))
 	_hud_gold = _mk_label(layer, Vector2(24, 108), 15, Color(1.0, 0.85, 0.35))
-	_hud_toast = _mk_label(layer, Vector2(0, 150), 26, Color(1, 1, 1))
+	_hud_toast = _mk_label(layer, Vector2(0, 150), 30, Color(1, 1, 1))
 	_hud_toast.size = Vector2(1440, 40)
 	_hud_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hud_toast.modulate.a = 0.0
+	# Themed display font for toasts (auto-gold, level up, etc.) — the default font
+	# looked flat. Creepster matches the spooky-plush vibe.
+	var toast_font := FontFile.new()
+	if toast_font.load_dynamic_font("res://assets/creepster.ttf") == OK:
+		_hud_toast.add_theme_font_override("font", toast_font)
 	# Boss health bar (top-centre, hidden until the guardian is engaged).
 	_hud_boss_root = Control.new()
 	_hud_boss_root.position = Vector2(522, 18)

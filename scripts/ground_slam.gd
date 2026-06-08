@@ -23,95 +23,59 @@ var _detonated: bool = false
 @onready var ring: Line2D = $Ring
 @onready var fill: Polygon2D = $Fill
 
-# Extra procedural visual nodes built in _ready
-var _inner_ring: Line2D = null      # smaller concentric ring
-var _rune_holder: Node2D = null     # parent for rotating tick segments
-var _rune_segments: Array = []      # of Line2D
-var _crosshair: Node2D = null       # NSEW indicators
-
-const NUM_RUNE_SEGMENTS: int = 8
+# Inward-marching chevron markers built in _ready
+var _chevrons: Array = []           # of {node: Polygon2D, ang: float}
+const NUM_CHEV: int = 4
 
 func _ready() -> void:
 	_build_visuals()
 
 func _build_visuals() -> void:
 	var n: int = 56
-	# --- Outer ring -----------------------------------------------------
+	# --- Outer ring — thin red danger outline ---------------------------
 	var pts := PackedVector2Array()
 	for i in n + 1:
 		var ang: float = float(i) / float(n) * TAU
 		pts.append(Vector2(cos(ang), sin(ang)) * radius)
 	ring.points = pts
-	ring.width = 4.5
-	ring.default_color = Color(1.0, 0.85, 0.30, 0.95)
-	# --- Filled disk underneath ----------------------------------------
+	ring.width = 3.0
+	ring.default_color = Color(1.0, 0.3, 0.22, 0.9)
+	# --- Filled disk — charges up red as the strike lands ---------------
 	var fill_pts := PackedVector2Array()
 	for i in n:
 		var ang: float = float(i) / float(n) * TAU
 		fill_pts.append(Vector2(cos(ang), sin(ang)) * radius)
 	fill.polygon = fill_pts
-	fill.color = Color(1.0, 0.85, 0.30, 0.18)
-	# --- Inner concentric ring (60% radius) ----------------------------
-	_inner_ring = Line2D.new()
-	_inner_ring.width = 2.0
-	_inner_ring.default_color = Color(1.0, 0.95, 0.55, 0.7)
-	var inner_pts := PackedVector2Array()
-	for i in n + 1:
-		var ang: float = float(i) / float(n) * TAU
-		inner_pts.append(Vector2(cos(ang), sin(ang)) * (radius * 0.6))
-	_inner_ring.points = inner_pts
-	add_child(_inner_ring)
-	# --- Rotating rune segments ON the outer ring ----------------------
-	_rune_holder = Node2D.new()
-	add_child(_rune_holder)
-	for i in NUM_RUNE_SEGMENTS:
-		var seg := Line2D.new()
-		var base_ang: float = float(i) / float(NUM_RUNE_SEGMENTS) * TAU
-		var arc_span: float = TAU / float(NUM_RUNE_SEGMENTS) * 0.35  # 35% of slot
-		var arc_pts := PackedVector2Array()
-		var steps: int = 10
-		for s in steps + 1:
-			var a: float = base_ang - arc_span * 0.5 + arc_span * float(s) / float(steps)
-			arc_pts.append(Vector2(cos(a), sin(a)) * (radius * 1.05))
-		seg.points = arc_pts
-		seg.width = 5.0
-		seg.default_color = Color(1.0, 0.7, 0.15, 0.95)
-		_rune_holder.add_child(seg)
-		_rune_segments.append(seg)
-	# --- Crosshair tick marks (NSEW) -----------------------------------
-	_crosshair = Node2D.new()
-	add_child(_crosshair)
-	for i in 4:
-		var t := Line2D.new()
-		var ang2: float = float(i) * PI / 2.0
-		var outer_p: Vector2 = Vector2(cos(ang2), sin(ang2)) * (radius * 0.95)
-		var inner_p: Vector2 = Vector2(cos(ang2), sin(ang2)) * (radius * 0.75)
-		t.points = PackedVector2Array([inner_p, outer_p])
-		t.width = 3.0
-		t.default_color = Color(1.0, 0.9, 0.45, 0.85)
-		_crosshair.add_child(t)
+	fill.color = Color(0.9, 0.15, 0.12, 0.10)
+	# --- Four chevrons that march inward toward the impact point --------
+	for i in NUM_CHEV:
+		var ang: float = float(i) / float(NUM_CHEV) * TAU + PI / 4.0
+		var chev := Polygon2D.new()
+		chev.polygon = PackedVector2Array([Vector2(12, 0), Vector2(-8, -9), Vector2(-3, 0), Vector2(-8, 9)])
+		chev.color = Color(1.0, 0.35, 0.2, 0.95)
+		add_child(chev)
+		_chevrons.append({"node": chev, "ang": ang})
 
 func _process(delta: float) -> void:
 	if _detonated:
 		return
 	_t += delta
 	var t: float = clamp(_t / windup, 0.0, 1.0)
-	# Pulse the fill brighter + redder as detonation approaches
-	fill.color = Color(1.0, 0.55 + 0.35 * (1.0 - t), 0.30 - 0.20 * t, 0.18 + 0.40 * t)
-	ring.default_color = Color(1.0, 0.85 - 0.55 * t, 0.30 - 0.20 * t, 0.95)
-	# Outer ring throbs in thickness
-	ring.width = 4.5 + sin(_t * 18.0) * 1.5 + t * 3.0
-	# Inner ring counter-pulses on a different phase
-	if is_instance_valid(_inner_ring):
-		var inner_a: float = 0.4 + 0.5 * (0.5 + 0.5 * sin(_t * 12.0))
-		_inner_ring.default_color = Color(1.0, 0.95, 0.55, inner_a)
-	# Rotate the rune segments — speeds up as windup nears 1.0
-	if is_instance_valid(_rune_holder):
-		_rune_holder.rotation += delta * (1.2 + t * 4.5)
-	# Crosshair flashes near the end
-	if is_instance_valid(_crosshair):
-		var flash: float = 0.6 + 0.4 * sin(_t * 22.0) if t > 0.5 else 0.5
-		_crosshair.modulate = Color(1.0, 0.9, 0.45, flash)
+	# Disk fills up + deepens to angry red as it charges.
+	fill.color = Color(0.95, 0.18 * (1.0 - t), 0.12 * (1.0 - t), 0.10 + 0.50 * t)
+	# Ring throbs + reddens.
+	ring.width = 3.0 + t * 3.0 + sin(_t * 16.0) * 1.0
+	ring.default_color = Color(1.0, 0.3 - 0.2 * t, 0.22 - 0.15 * t, 0.9)
+	# Chevrons converge on the centre + pulse — the closer in, the sooner it hits.
+	var d: float = lerpf(radius * 1.18, radius * 0.42, t)
+	var puls: float = 1.0 + 0.25 * sin(_t * 18.0)
+	for c in _chevrons:
+		var node: Polygon2D = c["node"]
+		var ang: float = c["ang"]
+		node.position = Vector2(cos(ang), sin(ang)) * d
+		node.rotation = ang + PI            # arrow tip points inward
+		node.scale = Vector2(puls, puls)
+		node.modulate = Color(1, 1, 1, 0.7 + 0.3 * t)
 	if _t >= windup:
 		_detonate()
 
@@ -124,9 +88,9 @@ func _detonate() -> void:
 	# Hide all telegraph visuals immediately on detonation
 	ring.visible = false
 	fill.visible = false
-	if is_instance_valid(_inner_ring):  _inner_ring.visible = false
-	if is_instance_valid(_rune_holder): _rune_holder.visible = false
-	if is_instance_valid(_crosshair):   _crosshair.visible = false
+	for c in _chevrons:
+		if is_instance_valid(c["node"]):
+			(c["node"] as Node2D).visible = false
 	# Spawn the ring shockwave sprite — scales to the slam radius
 	_spawn_ring_shockwave()
 	# Central red explosion for impact punch
@@ -161,7 +125,7 @@ func _spawn_ring_shockwave() -> void:
 	# Scale so the shockwave covers ~2x the slam radius at peak.
 	var s: float = (radius * 2.2) / float(RING_FRAME_SIZE)
 	sprite.scale = Vector2(s, s)
-	sprite.modulate = Color(1.0, 0.85, 0.55, 1.0)
+	sprite.modulate = Color(1.0, 0.45, 0.28, 1.0)   # red-orange to match the danger reticle
 	add_child(sprite)
 	# Drive the frame index with a Tween so we don't need _process.
 	var t := create_tween()

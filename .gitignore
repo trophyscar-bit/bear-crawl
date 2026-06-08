@@ -19,3 +19,6 @@ desktop.ini
 .DS_Store
 *.tmp
 *~
+
+# Portable gh CLI binary (downloaded helper, not project source)
+tools_gh/

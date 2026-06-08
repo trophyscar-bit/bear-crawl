@@ -7,8 +7,9 @@ extends "res://scripts/critter.gd"
 const AcidScene := preload("res://scenes/acid_patch.tscn")
 var _acid_t: float = 0.0
 
-const KEEP_DIST: float = 240.0   # never crowd the player — stay at least this far
-const BLOCK_LEAD: float = 260.0  # how far ahead of the player to set up the roadblock
+const STANDOFF: float = 215.0    # the ring he tries to hold around you
+var _orbit: float = 0.0          # idle sweep so he keeps crawling when you stop
+var _facing_dir: Vector2 = Vector2.RIGHT
 
 func _physics_process(delta: float) -> void:
 	if _dying:
@@ -18,27 +19,35 @@ func _physics_process(delta: float) -> void:
 		player = get_tree().get_first_node_in_group("player")
 		return
 	var ppos: Vector2 = (player as Node2D).global_position
-	var to_player: Vector2 = ppos - global_position
-	var dist: float = to_player.length()
 	var pv: Vector2 = Vector2.ZERO
 	if "velocity" in player:
 		pv = player.velocity
-	var desired: Vector2 = Vector2.ZERO
-	if dist < KEEP_DIST:
-		# Too close — he is NOT an attacker. Peel away from the player.
-		desired = -to_player.normalized()
-	elif pv.length() > 30.0:
-		# Player is on the move: slide ahead onto their path and clog it.
-		var block: Vector2 = ppos + pv.normalized() * BLOCK_LEAD
-		desired = (block - global_position).normalized()
+	# Where he wants to be: a spot on the standoff ring, OUT IN FRONT of where you're
+	# headed (or, if you're standing still, slowly sweeping around you). The target
+	# keeps moving, so he's always smoothly crawling — never the jerky "you stop, he
+	# stops" freeze.
+	var head: Vector2
+	if pv.length() > 25.0:
+		head = pv.normalized()
+		_facing_dir = head
 	else:
-		# Player idle: hold the line, just keep spacing. Don't creep in.
-		desired = Vector2.ZERO
-	velocity = desired * speed
+		_orbit += delta * 0.9
+		head = Vector2.from_angle(_orbit)
+	var desired_pos: Vector2 = ppos + head * STANDOFF
+	var to_desired: Vector2 = desired_pos - global_position
+	var target_vel: Vector2
+	if to_desired.length() < 42.0:
+		# In position — glide sideways along the ring so he keeps creeping, laying acid.
+		var tangent := Vector2(-head.y, head.x)
+		target_vel = tangent * speed * 0.6
+	else:
+		target_vel = to_desired.normalized() * speed
+	# Smoothed momentum (no instant velocity snaps) = organic crawl.
+	velocity = velocity.lerp(target_vel, 5.0 * delta)
 	move_and_slide()
 	if is_instance_valid(_rig) and absf(velocity.x) > 4.0:
 		_rig.scale.x = absf(_rig.scale.x) * (1.0 if velocity.x > 0.0 else -1.0)
-	# Lay the acid trail as he crawls into position.
+	# Lay the acid trail as he crawls.
 	_acid_t -= delta
 	if _acid_t <= 0.0:
 		_acid_t = 0.32

@@ -46,8 +46,6 @@ const BOSS_AOE_COOLDOWN: float = 4.6
 const BOSS_AOE_RADIUS: float = 158.0
 const BOSS_AOE_DAMAGE: int = 2
 const StarGlowTex := preload("res://assets/light_radial.png")
-# boss_star.png has no .import sidecar — load it at runtime (preload would fail).
-static var _boss_star_tex: Texture2D = null
 
 var health: int
 var player: Node2D
@@ -598,20 +596,6 @@ func _fire_spit() -> void:
 	s.set("speed", SPIT_SPEED)
 	get_parent().add_child(s)
 
-func _get_boss_star_tex() -> Texture2D:
-	if _boss_star_tex != null:
-		return _boss_star_tex
-	var path := "res://assets/boss_star.png"
-	if ResourceLoader.exists(path):
-		_boss_star_tex = load(path) as Texture2D
-	elif FileAccess.file_exists(path):
-		var b := FileAccess.get_file_as_bytes(path)
-		if b.size() > 0:
-			var img := Image.new()
-			if img.load_png_from_buffer(b) == OK:
-				_boss_star_tex = ImageTexture.create_from_image(img)
-	return _boss_star_tex
-
 func _throw_ninja_star() -> void:
 	if not is_instance_valid(player):
 		return
@@ -630,20 +614,16 @@ func _spawn_ninja_star(dir: Vector2, glowing: bool) -> void:
 	s.speed = throw_speed * (0.78 if glowing else 1.0)   # boss stars slowed — easier to dodge
 	if glowing:
 		s.damage = 2
-		# Distinct boss shuriken art + a HALVED bloom (was a glare-bomb).
-		var bspr := s.get_node_or_null("Sprite") as Sprite2D
-		if bspr != null:
-			var bt := _get_boss_star_tex()
-			if bt != null:
-				bspr.texture = bt
-		(s as Node2D).modulate = Color(1.5, 1.5, 1.7)
-		(s as Node2D).scale *= 1.4
+		# Same star art as the grunt KK bears — just a little bigger, glowing slightly
+		# less. (The custom boss shuriken looked dumb.)
+		(s as Node2D).modulate = Color(1.2, 1.2, 1.3)
+		(s as Node2D).scale *= 1.35
 		if not ArpgState.no_projectile_glow:
 			var glow := PointLight2D.new()
 			glow.texture = StarGlowTex
-			glow.color = Color(1.0, 0.7, 0.6)   # warm halo to match the hot core
-			glow.energy = 0.7
-			glow.texture_scale = 0.6
+			glow.color = Color(0.95, 0.92, 1.0)
+			glow.energy = 0.4
+			glow.texture_scale = 0.5
 			s.add_child(glow)
 	else:
 		# Regular thrown stars get a very light glow so you can spot them in the dark.
