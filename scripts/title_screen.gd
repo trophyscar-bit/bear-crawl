@@ -382,9 +382,9 @@ func _update_stats_label() -> void:
 	stats_label.text = "🐻 %d  defeated     🧶 %d  fluff" % [kills, fluff]
 
 func _on_start() -> void:
-	# v2 IS the dungeon crawler now — Start drops you straight into a fresh run.
-	ArpgState.reset_run()
-	get_tree().change_scene_to_file("res://scenes/dungeon.tscn")
+	# Original v1 intro: fly out to the Ascension / loadout screen, which then
+	# dives into a pizza planet to drop you into the run.
+	_swipe_out_to_loadout()
 
 var _loadout_panel: Control = null
 var _ui_holder_nodes: Array = []   # cached so show/hide animations target the same list

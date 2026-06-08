@@ -550,7 +550,8 @@ func _on_start() -> void:
 	tw.tween_property(fade, "color:a", 1.0, IN_DUR * 0.5).set_delay(IN_DUR * 0.5)
 
 	tw.chain().tween_callback(func():
-		get_tree().change_scene_to_file("res://scenes/main.tscn")
+		ArpgState.reset_run()
+		get_tree().change_scene_to_file("res://scenes/dungeon.tscn")
 	)
 
 func _on_back() -> void:
