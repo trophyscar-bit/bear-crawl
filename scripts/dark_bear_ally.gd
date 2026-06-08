@@ -15,6 +15,8 @@ var _offset: Vector2 = Vector2(0, 680)
 var _shoot_t: float = 0.6
 var _facing: int = 1
 var _offscreen_t: float = 0.0   # how long he's been off-camera
+var _last_pos: Vector2 = Vector2.ZERO
+var _stuck_t: float = 0.0
 
 func _ready() -> void:
 	add_to_group("ally")
@@ -37,21 +39,49 @@ func _physics_process(delta: float) -> void:
 			return
 	var ppos: Vector2 = player.global_position
 	# Reposition: pick a fresh spot around the player every couple seconds so he
-	# circles/flanks instead of trailing the exact path.
+	# circles/flanks instead of trailing the exact path. Kept CLOSER now.
 	_retarget_t -= delta
 	if _retarget_t <= 0.0:
 		_retarget_t = randf_range(1.2, 2.3)
-		_offset = Vector2.from_angle(randf() * TAU) * randf_range(476.0, 663.0)   # ~15% closer
+		_offset = Vector2.from_angle(randf() * TAU) * randf_range(260.0, 400.0)
 	var target: Vector2 = ppos + _offset
 	var to: Vector2 = target - global_position
 	var far: float = global_position.distance_to(ppos)
-	var spd: float = speed + (far - 580.0) * 0.6   # speed up if he's lagging behind
-	spd = clampf(spd, 120.0, 520.0)
+	var desired: Vector2 = to.normalized()
+	# Wall avoidance: if a wall is in the way to his target, steer ALONG it (and a
+	# touch away) instead of grinding into it.
+	var space := get_world_2d().direct_space_state
+	var look: float = minf(to.length(), 90.0)
+	var q := PhysicsRayQueryParameters2D.create(global_position, global_position + desired * look)
+	q.collision_mask = 1
+	q.exclude = [get_rid(), player.get_rid()]
+	var hit: Dictionary = space.intersect_ray(q)
+	if not hit.is_empty():
+		var n: Vector2 = hit["normal"]
+		var tang := Vector2(-n.y, n.x)
+		if tang.dot(desired) < 0.0:
+			tang = -tang
+		desired = (tang * 0.85 + n * 0.3).normalized()
+	var spd: float = speed + (far - 340.0) * 0.6
+	spd = clampf(spd, 130.0, 520.0)
 	if to.length() > 10.0:
-		velocity = to.normalized() * spd
+		velocity = velocity.lerp(desired * spd, 0.3)
 	else:
 		velocity = velocity.lerp(Vector2.ZERO, 0.25)
 	move_and_slide()
+	# Self-unstick: wanted to move but didn't → shove sideways off the wall.
+	var moved: float = global_position.distance_to(_last_pos)
+	if velocity.length() > 30.0 and moved < 0.4:
+		_stuck_t += delta
+		if _stuck_t >= 0.4:
+			_stuck_t = 0.0
+			var perp := Vector2(-velocity.y, velocity.x).normalized()
+			if randf() < 0.5:
+				perp = -perp
+			global_position += perp * 22.0
+	else:
+		_stuck_t = 0.0
+	_last_pos = global_position
 	# Off-screen stuck recovery: if he's been outside the visible screen for 6s
 	# (wall-stuck, flung off, etc.), warp him to just beyond the screen edge near
 	# you and let him fly back in normally.
@@ -59,11 +89,11 @@ func _physics_process(delta: float) -> void:
 		_offscreen_t = 0.0
 	else:
 		_offscreen_t += delta
-		if _offscreen_t >= 6.0:
+		if _offscreen_t >= 3.5:
 			_warp_offscreen_near(ppos)
 			_offscreen_t = 0.0
-	# hard fallback if he's somehow flung extremely far
-	if far > 1800.0:
+	# hard fallback if he's somehow flung far
+	if far > 1100.0:
 		_warp_offscreen_near(ppos)
 	if absf(velocity.x) > 4.0:
 		_facing = 1 if velocity.x > 0.0 else -1

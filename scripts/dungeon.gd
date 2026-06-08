@@ -225,16 +225,20 @@ func _generate_bsp() -> void:
 		if _rooms.size() > 2:
 			_connect_rooms(_rooms[randi() % _rooms.size()], _rooms[randi() % _rooms.size()])
 	_start_room = _rooms[0]
-	# boss room = farthest from the start (longest journey)
-	var best: int = _rooms.size() - 1
-	var bd: float = -1.0
+	# Boss room = a RANDOM room a decent distance from the start (middle or far
+	# side) — not always parked in the far corner.
 	var sc: Vector2 = Vector2(_room_center_cell(_start_room))
+	var far_fallback: int = _rooms.size() - 1
+	var far_d: float = -1.0
+	var candidates: Array = []
 	for i in range(1, _rooms.size()):
 		var d: float = Vector2(_room_center_cell(_rooms[i])).distance_to(sc)
-		if d > bd:
-			bd = d
-			best = i
-	_boss_room = _rooms[best]
+		if d > far_d:
+			far_d = d
+			far_fallback = i
+		if d >= 7.0:
+			candidates.append(i)
+	_boss_room = _rooms[candidates[randi() % candidates.size()]] if not candidates.is_empty() else _rooms[far_fallback]
 
 func _carve_rect(r: Rect2i) -> void:
 	for y in range(r.position.y, r.position.y + r.size.y):
@@ -1391,6 +1395,85 @@ func dev_weapon_summary() -> String:
 		s += " · bounce %d" % int(w.get("bounces", 0))
 	return s
 
+var _stats_layer: CanvasLayer = null
+
+func _stat_line(parent: VBoxContainer, key: String, val: String, accent: Color = Color(1, 1, 1)) -> void:
+	var row := HBoxContainer.new()
+	parent.add_child(row)
+	var k := Label.new()
+	k.text = key
+	k.add_theme_font_size_override("font_size", 19)
+	k.add_theme_color_override("font_color", Color(0.66, 0.7, 0.8))
+	k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(k)
+	var v := Label.new()
+	v.text = val
+	v.add_theme_font_size_override("font_size", 19)
+	v.add_theme_color_override("font_color", accent)
+	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	row.add_child(v)
+
+func _toggle_stats() -> void:
+	if is_instance_valid(_stats_layer):
+		_stats_layer.queue_free()
+		_stats_layer = null
+		get_tree().paused = false
+		return
+	get_tree().paused = true
+	_stats_layer = CanvasLayer.new()
+	_stats_layer.layer = 94
+	_stats_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(_stats_layer)
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.0, 0.04, 0.84)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_stats_layer.add_child(dim)
+	var panel := PanelContainer.new()
+	panel.position = Vector2(470, 130)
+	panel.custom_minimum_size = Vector2(500, 0)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.08, 0.08, 0.12, 0.98)
+	sb.set_border_width_all(3); sb.border_color = Color(0.78, 0.64, 0.36)
+	sb.set_corner_radius_all(14); sb.set_content_margin_all(26)
+	panel.add_theme_stylebox_override("panel", sb)
+	_stats_layer.add_child(panel)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 9)
+	panel.add_child(vb)
+	var title := Label.new()
+	title.text = "CHARACTER"
+	title.add_theme_font_size_override("font_size", 34)
+	title.add_theme_color_override("font_color", Color(1.0, 0.86, 0.35))
+	var tf := FontFile.new()
+	if tf.load_dynamic_font("res://assets/anton.ttf") == OK:
+		title.add_theme_font_override("font", tf)
+	vb.add_child(title)
+	var hp: int = int(_player.max_health) if is_instance_valid(_player) and "max_health" in _player else 0
+	var w: Dictionary = ArpgState.weapon
+	var base_dmg: int = int(w.get("dmg", 1))
+	_stat_line(vb, "Level", "%d   ·   Floor %d" % [ArpgState.level, ArpgState.depth])
+	_stat_line(vb, "Gold", "%d" % ArpgState.gold, Color(1.0, 0.85, 0.35))
+	_stat_line(vb, "─────────────", "")
+	_stat_line(vb, "Max HP", "%d" % hp, Color(0.5, 1.0, 0.6))
+	_stat_line(vb, "Damage", "%d   (base %d × %.2f)" % [ArpgState.weapon_damage(), base_dmg, ArpgState.dmg_mult], Color(1.0, 0.6, 0.5))
+	_stat_line(vb, "Crit Chance", "%d%%" % int(ArpgState.crit_chance * 100.0), Color(1.0, 0.5, 0.75))
+	_stat_line(vb, "Fire Rate", "%.2f / s" % (1.0 / ArpgState.weapon_cooldown()), Color(1.0, 0.85, 0.4))
+	_stat_line(vb, "Move Speed", "+%d%%" % int((ArpgState.speed_mult - 1.0) * 100.0), Color(0.5, 0.8, 1.0))
+	_stat_line(vb, "─────────────", "")
+	var rar: int = int(w.get("rarity", 0))
+	_stat_line(vb, "Weapon", "%s %s" % [ArpgState.RARITY_NAMES[rar], w.get("name", "—")], ArpgState.RARITY_COLORS[rar])
+	_stat_line(vb, "   Projectiles", "%d" % ArpgState.weapon_count())
+	_stat_line(vb, "   Pierce", "%d" % int(w.get("pierce", 0)))
+	if bool(w.get("ball", false)):
+		_stat_line(vb, "   Bounces", "%d" % int(w.get("bounces", 1)))
+	_stat_line(vb, "   Back Shot", "Yes" if ArpgState.back_shot else "No")
+	var hint := Label.new()
+	hint.text = "TAB to close"
+	hint.add_theme_font_size_override("font_size", 15)
+	hint.add_theme_color_override("font_color", Color(0.6, 0.62, 0.7))
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(hint)
+
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_ESCAPE:
@@ -1405,6 +1488,9 @@ func _input(event: InputEvent) -> void:
 			if not _near_loot_item.is_empty() and is_instance_valid(_near_loot_area):
 				get_viewport().set_input_as_handled()
 				_offer_weapon(_near_loot_item, _near_loot_area)
+		elif event.keycode == KEY_TAB:
+			get_viewport().set_input_as_handled()
+			_toggle_stats()
 
 # ── lighting modes (live-switchable) ────────────────────────────────────────
 func _build_gi_layer() -> void:

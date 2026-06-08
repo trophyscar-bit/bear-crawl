@@ -295,7 +295,7 @@ func generate_shop(_count: int = 5) -> Array:
 		{"id": "firerate",  "name": "Greased Oven",         "desc": "+12% Fire Rate (all)", "color": Color(1.0, 0.85, 0.4)},
 		{"id": "crit",      "name": "Spicy Pepperoni",      "desc": "+10% Crit Chance",   "color": Color(1.0, 0.4, 0.7)},
 		{"id": "speed",     "name": "Roller Skates",        "desc": "+8% Move Speed",     "color": Color(0.5, 0.8, 1.0)},
-		{"id": "weapon",    "name": "Mystery Box",          "desc": "Swap to a random weapon", "color": Color(0.85, 0.85, 0.9)},
+		{"id": "weapon",    "name": "Mystery Box",          "desc": "New random weapon — Rare+ (resets weapon upgrades)", "color": Color(0.85, 0.85, 0.9)},
 	]
 	if not back_shot:
 		pool.append({"id": "back_shot", "name": "Back Shot", "desc": "Also fire out the back", "color": Color(0.7, 0.5, 1.0)})
@@ -345,7 +345,15 @@ func apply_upgrade(item: Dictionary) -> void:
 			"speed":     speed_mult += 0.08
 			"back_shot": back_shot = true
 			"weapon":
-				weapon = roll_weapon()
+				# Mystery Box: a fresh random weapon, but guaranteed Rare or better so
+				# it's a real gamble on TYPE (not a downgrade in rarity). It does reset
+				# weapon-specific upgrades since it's a brand-new weapon.
+				var rolled: Dictionary = roll_weapon()
+				for _try in 8:
+					if int(rolled.get("rarity", 0)) >= 2:
+						break
+					rolled = roll_weapon()
+				weapon = rolled
 				emit_signal("weapon_changed", weapon)
 	emit_signal("stats_changed")
 
