@@ -21,6 +21,7 @@ const BeanieBearScene      := preload("res://scenes/beanie_bear.tscn")
 const TeddyBearScene       := preload("res://scenes/teddy_bear.tscn")
 const CreamBearScene       := preload("res://scenes/cream_bear.tscn")
 const DarkAllyScene        := preload("res://scenes/dark_bear_ally.tscn")
+const SkeletonScene        := preload("res://scenes/skeleton.tscn")
 const ExplosionScene       := preload("res://scenes/explosion.tscn")
 const GroundSlamScene      := preload("res://scenes/ground_slam.tscn")
 const BearPawSlamScene     := preload("res://scenes/bear_paw_slam.tscn")
@@ -158,7 +159,8 @@ func _enemy_stations() -> Array:
 		{"title": "LONG BEAR  —  acid trail", "kind": "enemy", "scene": SealScene},
 		{"title": "ARMY BEAR  —  airstrike BOSS", "kind": "enemy", "scene": ArmyBearScene},
 		{"title": "BEANIE BEAR  —  throws beanies", "kind": "enemy", "scene": BeanieBearScene},
-		{"title": "TEDDY BEAR", "kind": "enemy", "scene": TeddyBearScene},
+		{"title": "TEDDY BEAR  —  bomber", "kind": "enemy", "scene": TeddyBearScene},
+		{"title": "SKELETON  —  melee", "kind": "enemy", "scene": SkeletonScene},
 		{"title": "CREAM BEAR", "kind": "enemy", "scene": CreamBearScene},
 		{"title": "DARK BEAR  —  ALLY companion", "kind": "ally", "scene": DarkAllyScene, "open": true},
 		{"title": "BOSS  —  spread + AOE", "kind": "boss", "scene": EnemyScene},

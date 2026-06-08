@@ -225,7 +225,7 @@ func add_xp(amount: int) -> void:
 		level += 1
 		xp_to_next = int(round(float(xp_to_next) * 1.35)) + 2
 		emit_signal("leveled_up", level)
-		emit_signal("toast", "LEVEL UP!  Lv %d" % level, Color(0.6, 1.0, 0.5))
+		emit_signal("toast", "LEVEL  %d" % level, Color(1.0, 0.86, 0.3))
 	emit_signal("stats_changed")
 
 func descend() -> void:

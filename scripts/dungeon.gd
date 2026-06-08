@@ -22,7 +22,8 @@ const BeanieBearScene := preload("res://scenes/beanie_bear.tscn")
 const TeddyBearScene := preload("res://scenes/teddy_bear.tscn")
 const CreamBearScene := preload("res://scenes/cream_bear.tscn")
 const DarkAllyScene := preload("res://scenes/dark_bear_ally.tscn")
-const CRITTER_POOL: Array = [DucklingScene, HoundScene, FrostCubScene, SealScene, BeanieBearScene, TeddyBearScene, CreamBearScene]
+const SkeletonScene := preload("res://scenes/skeleton.tscn")
+const CRITTER_POOL: Array = [DucklingScene, HoundScene, FrostCubScene, SealScene, BeanieBearScene, TeddyBearScene, CreamBearScene, SkeletonScene]
 const LightTex := preload("res://assets/light_radial.png")
 const FloorTex := preload("res://assets/dungeon_floor.png")
 const WallTex := preload("res://assets/dungeon_wall.png")
@@ -1871,11 +1872,11 @@ func _close_weapon_popup(layer: CanvasLayer, area: Area2D, take: bool, item: Dic
 
 func _on_level_up(_lvl: int) -> void:
 	Juice.shake(0.3)
-	if is_instance_valid(_player):
-		if "max_health" in _player:
-			_player.max_health = int(_player.max_health) + 2
-		if _player.has_method("heal"):
-			_player.heal(3)
+	# (No flat +2 max HP per level — that stacked on top of ArpgState.bonus_max_health
+	# and was a big part of the late-game invincibility. HP growth now comes only from
+	# the gentler bonus_max_health curve, applied per floor.) Small heal as a reward.
+	if is_instance_valid(_player) and _player.has_method("heal"):
+		_player.heal(2)
 	_refresh_hud()
 
 # ── HUD ────────────────────────────────────────────────────────────────────
