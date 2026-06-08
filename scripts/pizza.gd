@@ -52,6 +52,18 @@ func _physics_process(delta: float) -> void:
 	if _wall_grace > 0.0:
 		_wall_grace -= delta
 	var travel: float = speed * delta
+	# Anti-tunnel: sweep a ray for walls along this frame's path. Fast shots (and the
+	# diagonal gaps where wall tiles meet at a corner) were occasionally slipping
+	# through. If we'd cross a wall this frame, stop at it and run the normal wall hit.
+	if _wall_grace <= 0.0:
+		var space := get_world_2d().direct_space_state
+		var q := PhysicsRayQueryParameters2D.create(global_position, global_position + direction * travel)
+		q.collision_mask = 1
+		var hit: Dictionary = space.intersect_ray(q)
+		if not hit.is_empty() and hit.get("collider") != null and (hit["collider"] as Node).is_in_group("walls"):
+			global_position = hit["position"]
+			_on_body_entered(hit["collider"])
+			return   # handled (bounced/shoved out or consumed)
 	position += direction * travel
 	rotation += spin_speed * delta
 	_age += delta

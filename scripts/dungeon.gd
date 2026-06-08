@@ -758,6 +758,13 @@ const WAVE_UNLOCKS: Array = [
 	PlushBrawlerScene,    # 12 charger
 ]
 const WAVE_UNLOCK_INTERVAL: float = 60.0   # a new enemy type joins every minute
+const WAVE_NAMES: Dictionary = {
+	"skeleton": "SKELETON", "seal": "LONG BEAR", "duckling": "DUCKLING",
+	"cream_bear": "CREAM BEAR", "beanie_bear": "BEANIE BEAR", "hound": "HOUND",
+	"gun_bear": "GUN BEAR", "growler": "ARCHER", "frost_cub": "FROST CUB",
+	"teddy_bear": "TEDDY BEAR", "shrinkwrap_bear": "SHRINKWRAP", "enemy": "KK BEAR",
+	"plush_brawler": "BRAWLER",
+}
 
 var _wave_t: float = 0.0
 var _wave_spawn_t: float = 0.0
@@ -790,8 +797,8 @@ func _wave_tick(delta: float) -> void:
 	var unlocked: int = _wave_unlocked_count()
 	if unlocked > _wave_last_unlocked:
 		_wave_last_unlocked = unlocked
-		var nm: String = String(WAVE_UNLOCKS[unlocked - 1].resource_path.get_file().get_basename()).to_upper()
-		_on_toast("NEW THREAT: %s" % nm, Color(1.0, 0.55, 0.4))
+		var fn: String = WAVE_UNLOCKS[unlocked - 1].resource_path.get_file().get_basename()
+		_on_toast(WAVE_NAMES.get(fn, fn.to_upper()), Color(1.0, 0.55, 0.4))
 	_wave_spawn_t -= delta
 	if _wave_spawn_t <= 0.0:
 		_wave_spawn_t = _wave_interval()
@@ -1135,7 +1142,7 @@ func _process(delta: float) -> void:
 		if _player.global_position.distance_to((_boss as Node2D).global_position) < 460.0:
 			_boss_alerted = true
 			Juice.shake(0.4)
-			_on_toast("⚔  THE DUNGEON GUARDIAN  ⚔", Color(1.0, 0.4, 0.4))
+			_flash_boss()
 	# Boss health bar follows its current HP.
 	if _hud_boss_root != null:
 		var show_bar: bool = _boss_alerted and not _boss_dead and _boss_is_dead() == false
@@ -2098,8 +2105,35 @@ func _show_level_up() -> void:
 		ds.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		ds.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		vb.add_child(ds)
+		var prev := _upgrade_preview(opt)
+		if prev != "":
+			var pl := Label.new()
+			pl.text = prev
+			pl.add_theme_font_size_override("font_size", 15)
+			pl.add_theme_color_override("font_color", Color(0.62, 0.68, 0.78))
+			pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			vb.add_child(pl)
 		card.pressed.connect(_pick_level_up.bind(layer, opt))
 		row.add_child(card)
+
+func _upgrade_preview(opt: Dictionary) -> String:
+	# A concrete "before → after" so +1 Damage vs +10% Damage is readable at a glance.
+	var w: Dictionary = ArpgState.weapon
+	var cur_dmg: int = ArpgState.weapon_damage()
+	match String(opt.get("id", "")):
+		"w_dmg":      return "Damage  %d → %d" % [cur_dmg, cur_dmg + 1]
+		"w_dmg2":     return "Damage  %d → %d" % [cur_dmg, cur_dmg + 2]
+		"dmg":        return "Damage  %d → %d" % [cur_dmg, int(ceil(float(w.get("dmg", 1)) * (ArpgState.dmg_mult + 0.10)))]
+		"maxhp":      return "Max HP  +4"
+		"firerate":   return "Fire rate  +12%"
+		"w_firerate": return "Fire rate  +11%"
+		"crit":       return "Crit  %d%% → %d%%" % [int(ArpgState.crit_chance * 100.0), int(minf(ArpgState.crit_chance + 0.10, 0.75) * 100.0)]
+		"speed":      return "Move speed  +8%"
+		"w_pierce":   return "Pierce  %d → %d" % [int(w.get("pierce", 0)), int(w.get("pierce", 0)) + 1]
+		"w_bounce":   return "Bounces  %d → %d" % [int(w.get("bounces", 1)), int(w.get("bounces", 1)) + 3]
+		"w_count":    return "Shots  %d → %d" % [ArpgState.weapon_count(), ArpgState.weapon_count() + 1]
+		"back_shot":  return "Also fires behind you"
+	return ""
 
 func _pick_level_up(layer: CanvasLayer, opt: Dictionary) -> void:
 	ArpgState.apply_upgrade(opt)
@@ -2214,6 +2248,36 @@ func _refresh_hud() -> void:
 	_hud_weapon.add_theme_color_override("font_color", ArpgState.RARITY_COLORS[rar])
 	var frac: float = float(ArpgState.xp) / float(max(1, ArpgState.xp_to_next))
 	_hud_xp_fill.size.x = 238.0 * clampf(frac, 0.0, 1.0)
+
+func _flash_boss() -> void:
+	# Big "BOSS" that flashes a couple times then fades — replaces the guardian toast.
+	var layer := CanvasLayer.new()
+	layer.layer = 50
+	add_child(layer)
+	var lbl := Label.new()
+	lbl.text = "BOSS"
+	lbl.add_theme_font_size_override("font_size", 110)
+	lbl.add_theme_color_override("font_color", Color(1.0, 0.22, 0.22))
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	lbl.add_theme_constant_override("outline_size", 8)
+	var lf := FontFile.new()
+	if lf.load_dynamic_font("res://assets/anton.ttf") == OK:
+		lbl.add_theme_font_override("font", lf)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.anchor_left = 0.0; lbl.anchor_right = 1.0
+	lbl.offset_top = 270.0
+	lbl.pivot_offset = Vector2(720, 60)
+	lbl.modulate.a = 0.0
+	layer.add_child(lbl)
+	var tw := lbl.create_tween()
+	tw.tween_property(lbl, "modulate:a", 1.0, 0.12)   # flash on
+	tw.tween_property(lbl, "modulate:a", 0.15, 0.14)  # off
+	tw.tween_property(lbl, "modulate:a", 1.0, 0.12)   # on again
+	tw.tween_interval(0.7)
+	tw.tween_property(lbl, "modulate:a", 0.0, 0.4)
+	tw.tween_callback(layer.queue_free)
+	lbl.scale = Vector2(1.35, 1.35)
+	lbl.create_tween().tween_property(lbl, "scale", Vector2.ONE, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func _on_toast(text: String, color: Color) -> void:
 	if _hud_toast == null:
