@@ -2017,14 +2017,101 @@ func _close_weapon_popup(layer: CanvasLayer, area: Area2D, take: bool, item: Dic
 	_weapon_popup_open = false
 	get_tree().paused = false
 
+var _levelup_queue: int = 0
+var _levelup_open: bool = false
+
 func _on_level_up(_lvl: int) -> void:
 	Juice.shake(0.3)
-	# (No flat +2 max HP per level — that stacked on top of ArpgState.bonus_max_health
-	# and was a big part of the late-game invincibility. HP growth now comes only from
-	# the gentler bonus_max_health curve, applied per floor.) Small heal as a reward.
 	if is_instance_valid(_player) and _player.has_method("heal"):
-		_player.heal(2)
+		_player.heal(2)   # small heal reward
 	_refresh_hud()
+	# Vampire-Survivors-style: pause and offer a choice of upgrades.
+	_levelup_queue += 1
+	if not _levelup_open:
+		_show_level_up()
+
+func _show_level_up() -> void:
+	var opts: Array = ArpgState.level_up_options()
+	if opts.is_empty():
+		_levelup_queue = maxi(0, _levelup_queue - 1)
+		return
+	_levelup_open = true
+	get_tree().paused = true
+	var layer := CanvasLayer.new()
+	layer.name = "LevelUpLayer"
+	layer.layer = 92
+	layer.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(layer)
+	var dim := ColorRect.new()
+	dim.color = Color(0.0, 0.0, 0.05, 0.8)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	layer.add_child(dim)
+	var title := Label.new()
+	title.text = "LEVEL  %d" % ArpgState.level
+	title.add_theme_font_size_override("font_size", 56)
+	title.add_theme_color_override("font_color", Color(1.0, 0.86, 0.3))
+	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	title.add_theme_constant_override("outline_size", 6)
+	var lf := FontFile.new()
+	if lf.load_dynamic_font("res://assets/anton.ttf") == OK:
+		title.add_theme_font_override("font", lf)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.anchor_left = 0.0; title.anchor_right = 1.0
+	title.offset_top = 150.0
+	layer.add_child(title)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 28)
+	# 3×240 + 2×28 = 776 wide → centre on a 1440 viewport.
+	row.position = Vector2(332, 410)
+	layer.add_child(row)
+	for opt in opts:
+		var card := Button.new()
+		card.custom_minimum_size = Vector2(240, 180)
+		card.focus_mode = Control.FOCUS_NONE
+		var col: Color = opt.get("color", Color(1, 0.9, 0.5))
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.10, 0.10, 0.14, 0.96)
+		sb.set_border_width_all(3); sb.border_color = col
+		sb.set_corner_radius_all(12)
+		card.add_theme_stylebox_override("normal", sb)
+		var hov := sb.duplicate() as StyleBoxFlat
+		hov.bg_color = Color(0.16, 0.16, 0.21, 0.98)
+		card.add_theme_stylebox_override("hover", hov)
+		card.add_theme_stylebox_override("pressed", hov)
+		var vb := VBoxContainer.new()
+		vb.set_anchors_preset(Control.PRESET_FULL_RECT)
+		vb.alignment = BoxContainer.ALIGNMENT_CENTER
+		vb.add_theme_constant_override("separation", 12)
+		vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(vb)
+		var nm := Label.new()
+		nm.text = String(opt.get("name", "?"))
+		nm.add_theme_font_size_override("font_size", 22)
+		nm.add_theme_color_override("font_color", col)
+		nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		vb.add_child(nm)
+		var ds := Label.new()
+		ds.text = String(opt.get("desc", ""))
+		ds.add_theme_font_size_override("font_size", 17)
+		ds.add_theme_color_override("font_color", Color(0.85, 0.87, 0.92))
+		ds.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		ds.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		vb.add_child(ds)
+		card.pressed.connect(_pick_level_up.bind(layer, opt))
+		row.add_child(card)
+
+func _pick_level_up(layer: CanvasLayer, opt: Dictionary) -> void:
+	ArpgState.apply_upgrade(opt)
+	_refresh_hud()
+	if is_instance_valid(layer):
+		layer.queue_free()
+	_levelup_open = false
+	_levelup_queue = maxi(0, _levelup_queue - 1)
+	if _levelup_queue > 0:
+		call_deferred("_show_level_up")   # stacked level-ups: show the next card
+	else:
+		get_tree().paused = false
 
 # ── HUD ────────────────────────────────────────────────────────────────────
 func _build_hud() -> void:

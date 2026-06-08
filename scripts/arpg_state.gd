@@ -237,12 +237,13 @@ func descend() -> void:
 
 # Player stat scaling from level + shop (loot supplies the weapon).
 func bonus_max_health() -> int:
-	# Gentle HP growth: +1 every 3 levels (was +2 EVERY level, which made you an
-	# invincible damage-sponge by floor 4). Shop "Reinforced Stuffing" still adds on top.
-	return int((level - 1) / 3) + bonus_maxhp
+	# HP growth now comes from level-up CARDS + shop boons (bonus_maxhp), not a
+	# passive per-level trickle. Keeps the level system meaningful (you choose).
+	return bonus_maxhp
 
 func bonus_damage() -> int:
-	return int(level / 3)
+	# Damage growth now comes from level-up cards / boons (dmg_mult), not a passive.
+	return 0
 
 func boss_hp() -> int:
 	return 110 + depth * 35
@@ -316,6 +317,12 @@ func buy(item: Dictionary) -> bool:
 		emit_signal("toast", "Not enough gold", Color(1.0, 0.5, 0.4))
 		return false
 	gold -= cost
+	apply_upgrade(item)
+	return true
+
+# Applies an upgrade's EFFECT (no gold cost) — shared by the shop and the level-up
+# card screen.
+func apply_upgrade(item: Dictionary) -> void:
 	var id: String = String(item.get("id", ""))
 	if bool(item.get("weapon_upgrade", false)):
 		match id:
@@ -341,4 +348,23 @@ func buy(item: Dictionary) -> bool:
 				weapon = roll_weapon()
 				emit_signal("weapon_changed", weapon)
 	emit_signal("stats_changed")
-	return true
+
+# Three random upgrade choices shown on level-up (mix of global boons + upgrades
+# for the equipped weapon). This is where build progression now happens.
+func level_up_options() -> Array:
+	var pool: Array = [
+		{"id": "maxhp",    "name": "Reinforced Stuffing", "desc": "+4 Max HP",        "color": Color(0.4, 0.9, 0.5)},
+		{"id": "dmg",      "name": "Sharper Toppings",    "desc": "+10% Damage",      "color": Color(1.0, 0.5, 0.4)},
+		{"id": "firerate", "name": "Greased Oven",        "desc": "+12% Fire Rate",   "color": Color(1.0, 0.85, 0.4)},
+		{"id": "crit",     "name": "Spicy Pepperoni",     "desc": "+10% Crit Chance", "color": Color(1.0, 0.4, 0.7)},
+		{"id": "speed",    "name": "Roller Skates",       "desc": "+8% Move Speed",   "color": Color(0.5, 0.8, 1.0)},
+	]
+	if not back_shot:
+		pool.append({"id": "back_shot", "name": "Back Shot", "desc": "Also fire backward", "color": Color(0.7, 0.5, 1.0)})
+	# Upgrades specific to the equipped weapon.
+	for wo in weapon_upgrade_options():
+		var w2: Dictionary = (wo as Dictionary).duplicate(true)
+		w2["weapon_upgrade"] = true
+		pool.append(w2)
+	pool.shuffle()
+	return pool.slice(0, mini(3, pool.size()))
