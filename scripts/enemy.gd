@@ -448,11 +448,24 @@ func _boss_teleport() -> void:
 	var space := get_world_2d().direct_space_state
 	# Collapse/vanish at the old spot.
 	_boss_warp_fx(global_position, false)
-	# Try a few spots around the player; pick one with clear LOS (likely open floor).
-	for _attempt in 8:
+	# Preferred: ask the level for a guaranteed FLOOR cell near the player — this is
+	# what stops him warping into rock / outside the playable area.
+	var parent := get_parent()
+	if parent != null and parent.has_method("floor_point_near"):
+		global_position = parent.call("floor_point_near", player.global_position, 190.0, 380.0)
+		_boss_arrive()
+		return
+	# Fallback (non-dungeon): a few candidates, rejecting any that's inside a wall or
+	# on the far side of one.
+	for _attempt in 10:
 		var ang: float = randf() * TAU
 		var dist: float = randf_range(190.0, 360.0)
 		var cand: Vector2 = player.global_position + Vector2(cos(ang), sin(ang)) * dist
+		var pq := PhysicsPointQueryParameters2D.new()
+		pq.position = cand
+		pq.collision_mask = 1
+		if not space.intersect_point(pq).is_empty():
+			continue   # candidate is inside a wall
 		var q := PhysicsRayQueryParameters2D.create(cand, player.global_position)
 		q.collision_mask = 1
 		q.exclude = [self]

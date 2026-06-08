@@ -268,6 +268,19 @@ func _room_center_world(r: Rect2i) -> Vector2:
 func world_to_fine(p: Vector2) -> Vector2:
 	return Vector2(p.x / tile, p.y / tile)
 
+func floor_point_near(origin: Vector2, dmin: float, dmax: float) -> Vector2:
+	# A guaranteed floor cell (inside a room) within [dmin, dmax] of `origin`. Used by
+	# the boss teleport so it can't land in rock / outside the playable area.
+	for _try in 90:
+		var room: Rect2i = _rooms[randi() % _rooms.size()]
+		var x: int = randi_range(room.position.x, room.position.x + room.size.x - 1)
+		var y: int = randi_range(room.position.y, room.position.y + room.size.y - 1)
+		var w := Vector2((x + 0.5) * tile, (y + 0.5) * tile)
+		var d: float = w.distance_to(origin)
+		if d >= dmin and d <= dmax:
+			return w
+	return _random_floor_world(0.0, false)
+
 func _random_floor_world(min_dist_from_start: float = 0.0, avoid_start: bool = false) -> Vector2:
 	var sc := _room_center_world(_start_room)
 	for _try in 120:
@@ -2085,9 +2098,8 @@ func _refresh_hud() -> void:
 	_hud_gold.text = "⛁ %d gold" % ArpgState.gold
 	var w: Dictionary = ArpgState.weapon
 	var rar: int = int(w.get("rarity", 0))
-	var crit_txt: String = "  ⚡%d%%" % int(ArpgState.crit_chance * 100.0) if ArpgState.crit_chance > 0.0 else ""
-	_hud_weapon.text = "%s %s  (dmg %d ×%d)%s" % [
-		ArpgState.RARITY_NAMES[rar], w.get("name", "—"), ArpgState.weapon_damage(), ArpgState.weapon_count(), crit_txt]
+	# Just "<Rarity> <Name>", coloured by rarity — the stats string overflowed the panel.
+	_hud_weapon.text = "%s %s" % [ArpgState.RARITY_NAMES[rar], w.get("name", "—")]
 	_hud_weapon.add_theme_color_override("font_color", ArpgState.RARITY_COLORS[rar])
 	var frac: float = float(ArpgState.xp) / float(max(1, ArpgState.xp_to_next))
 	_hud_xp_fill.size.x = 238.0 * clampf(frac, 0.0, 1.0)
