@@ -402,9 +402,9 @@ func _spawn_player() -> void:
 		torch.color = Color(1.0, 0.78, 0.5)
 		torch.shadow_enabled = true
 		torch.shadow_filter = 2          # PCF13 soft shadows
-		# Much wider PCF penumbra so the aura FEATHERS into the wall instead of the
-		# gradient slamming into a hard line where the wall cuts the light.
-		torch.shadow_filter_smooth = 28.0
+		# Moderate penumbra. (28 was too much — it muddied/washed the whole aura. A
+		# 2D point light has an inherently crisp shadow edge; this is the clean middle.)
+		torch.shadow_filter_smooth = 10.0
 		# (No indirect "fill" light — it bled through walls. Walls block all light now.)
 		if theme == "backrooms":
 			# Flat fluorescent space is already fully lit — no player light aura.
@@ -1107,7 +1107,8 @@ func dev_god_mode() -> void:
 # ── death / game over ────────────────────────────────────────────────────────
 func _on_player_died() -> void:
 	# Let the death explosion + chunks play out, then show the game-over screen.
-	await get_tree().create_timer(1.7, true).timeout
+	# (Doubled the beat so the death animation lands before YOU DIED appears.)
+	await get_tree().create_timer(3.4, true).timeout
 	_show_game_over()
 
 const _StuffingTex := preload("res://assets/stuffing.png")
