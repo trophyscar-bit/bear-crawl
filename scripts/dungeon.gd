@@ -2315,7 +2315,7 @@ func _upgrade_preview(opt: Dictionary) -> String:
 		"maxhp":      return "Max HP  +4"
 		"firerate":   return "Fire rate  +12%"
 		"w_firerate": return "Fire rate  +11%"
-		"crit":       return "Crit  %d%% → %d%%" % [int(ArpgState.crit_chance * 100.0), int(minf(ArpgState.crit_chance + 0.10, 0.75) * 100.0)]
+		"crit":       return "Crit  %d%% → %d%%" % [int(ArpgState.crit_chance * 100.0), int(minf(ArpgState.crit_chance + 0.07, 0.50) * 100.0)]
 		"speed":      return "Move speed  +8%"
 		"w_pierce":   return "Pierce  %d → %d" % [int(w.get("pierce", 0)), int(w.get("pierce", 0)) + 1]
 		"w_bounce":   return "Bounces  %d → %d" % [int(w.get("bounces", 1)), int(w.get("bounces", 1)) + 3]
@@ -2335,7 +2335,7 @@ func _levelup_change(opt: Dictionary) -> Array:
 		"dmg":        return ["dmg", "%d" % int(ceil(float(w.get("dmg", 1)) * (ArpgState.dmg_mult + 0.10)))]
 		"firerate":   return ["rate", "%.2f/s" % (1.0 / maxf(0.06, ArpgState.weapon_cooldown() * 0.88))]
 		"w_firerate": return ["rate", "%.2f/s" % (1.0 / maxf(0.06, ArpgState.weapon_cooldown() * 0.9))]
-		"crit":       return ["crit", "%d%%" % int(minf(ArpgState.crit_chance + 0.10, 0.75) * 100.0)]
+		"crit":       return ["crit", "%d%%" % int(minf(ArpgState.crit_chance + 0.07, 0.50) * 100.0)]
 		"maxhp":      return ["hp", "%d" % (hp_now + 4)]
 		"speed":      return ["speed", "+%d%%" % int((ArpgState.speed_mult + 0.08 - 1.0) * 100.0)]
 		"w_count":    return ["shots", "%d" % (ArpgState.weapon_count() + 1)]

@@ -6,6 +6,7 @@ extends "res://scripts/critter.gd"
 
 @export var blast_radius: float = 252.0
 @export var blast_damage: int = 4
+@export var blast_enemy_damage: int = 18   # friendly fire — the blast also shreds nearby mobs
 var _flash_t: float = 0.0
 var _activated: bool = false
 var _fast_speed: float = 0.0
@@ -50,4 +51,11 @@ func _detonate() -> void:
 			and (p as Node2D).global_position.distance_to(global_position) <= blast_radius \
 			and p.has_method("take_damage"):
 		p.take_damage(blast_damage)
+	# Friendly fire — the blast also shreds nearby mobs (lure bombers into a crowd).
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if e == self or not is_instance_valid(e):
+			continue
+		if (e as Node2D).global_position.distance_to(global_position) <= blast_radius \
+				and e.has_method("take_damage"):
+			e.take_damage(blast_enemy_damage)
 	Juice.shake(0.45)

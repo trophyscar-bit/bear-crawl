@@ -276,8 +276,10 @@ func weapon_upgrade_options() -> Array:
 	return opts
 
 func _weapon_upgrade_cost() -> int:
+	# Kept in the same ballpark as global run upgrades (was ~2x and ramped too
+	# hard, so nobody invested in their weapon).
 	var lvl: int = int(weapon.get("lvl", 0))
-	return int(round((30.0 + lvl * 13.0) * (1.0 + 0.2 * float(depth - 1))))
+	return int(round((18.0 + lvl * 6.0) * (1.0 + 0.15 * float(depth - 1))))
 
 func generate_shop(_count: int = 5) -> Array:
 	var offers: Array = []
@@ -290,7 +292,7 @@ func generate_shop(_count: int = 5) -> Array:
 		wo["weapon_upgrade"] = true
 		wo["cost"] = wcost
 		if String(wo.get("id", "")) == "w_count":
-			wo["cost"] = int(round(float(wcost) * 2.5))   # premium price on the +projectile
+			wo["cost"] = int(round(float(wcost) * 1.8))   # premium price on the +projectile
 		wo["weapon_name"] = String(weapon.get("name", "Weapon"))
 		offers.append(wo)
 	# 3 global run upgrades.
@@ -298,7 +300,7 @@ func generate_shop(_count: int = 5) -> Array:
 		{"id": "maxhp",     "name": "Reinforced Stuffing", "desc": "+4 Max HP",          "color": Color(0.4, 0.9, 0.5)},
 		{"id": "dmg",       "name": "Sharper Toppings",     "desc": "+10% Damage (all)",  "color": Color(1.0, 0.5, 0.4)},
 		{"id": "firerate",  "name": "Greased Oven",         "desc": "+12% Fire Rate (all)", "color": Color(1.0, 0.85, 0.4)},
-		{"id": "crit",      "name": "Spicy Pepperoni",      "desc": "+10% Crit Chance",   "color": Color(1.0, 0.4, 0.7)},
+		{"id": "crit",      "name": "Spicy Pepperoni",      "desc": "+7% Crit Chance",   "color": Color(1.0, 0.4, 0.7)},
 		{"id": "speed",     "name": "Roller Skates",        "desc": "+8% Move Speed",     "color": Color(0.5, 0.8, 1.0)},
 		{"id": "weapon",    "name": "Mystery Box",          "desc": "New random weapon — Rare+ (resets weapon upgrades)", "color": Color(0.85, 0.85, 0.9)},
 	]
@@ -346,7 +348,7 @@ func apply_upgrade(item: Dictionary) -> void:
 			"maxhp":     bonus_maxhp += 4
 			"dmg":       dmg_mult += 0.10
 			"firerate":  cooldown_mult *= 0.88
-			"crit":      crit_chance = minf(crit_chance + 0.10, 0.75)
+			"crit":      crit_chance = minf(crit_chance + 0.07, 0.50)   # capped at 50% — crit scales too hard unchecked
 			"speed":     speed_mult += 0.08
 			"back_shot": back_shot = true
 			"weapon":
@@ -369,7 +371,7 @@ func level_up_options() -> Array:
 		{"id": "maxhp",    "name": "Reinforced Stuffing", "desc": "+4 Max HP",        "color": Color(0.4, 0.9, 0.5)},
 		{"id": "dmg",      "name": "Sharper Toppings",    "desc": "+10% Damage",      "color": Color(1.0, 0.5, 0.4)},
 		{"id": "firerate", "name": "Greased Oven",        "desc": "+12% Fire Rate",   "color": Color(1.0, 0.85, 0.4)},
-		{"id": "crit",     "name": "Spicy Pepperoni",     "desc": "+10% Crit Chance", "color": Color(1.0, 0.4, 0.7)},
+		{"id": "crit",     "name": "Spicy Pepperoni",     "desc": "+7% Crit Chance", "color": Color(1.0, 0.4, 0.7)},
 		{"id": "speed",    "name": "Roller Skates",       "desc": "+8% Move Speed",   "color": Color(0.5, 0.8, 1.0)},
 	]
 	if not back_shot:
