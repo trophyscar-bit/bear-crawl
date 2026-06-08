@@ -123,6 +123,7 @@ func _show_category(cat: String) -> void:
 		"ENEMIES": _grid_stations(_enemy_stations(), PEN, STEP)
 		"WEAPONS": _grid_stations(_weapon_stations(), PEN, STEP)
 		"PROPS": _grid_stations(_prop_stations(), PEN, STEP)
+		"PORTALS": _grid_stations(_portal_stations(), PEN, STEP)
 		"LEVELS": _build_levels_grid()
 	# Park the player (enemy target) and centre the drag-camera on this category.
 	var view: Vector2 = ORIGIN + Vector2(STEP.x * 1.3, STEP.y * 0.6)
@@ -174,6 +175,13 @@ func _weapon_stations() -> Array:
 
 func _prop_stations() -> Array:
 	return [{"title": "BACKROOMS PROPS", "kind": "props", "open": true}]
+
+func _portal_stations() -> Array:
+	# Two candidate looks for the backrooms boss-portal — walk up and compare.
+	return [
+		{"title": "PORTAL  A  —  blocky stone", "kind": "portal", "tex": "res://assets/portal_backrooms.png", "open": true},
+		{"title": "PORTAL  B  —  craggy stone", "kind": "portal", "tex": "res://assets/portal_backrooms_b.png", "open": true},
+	]
 
 func _build_levels_grid() -> Vector2:
 	var biomes: Array = [
@@ -253,6 +261,43 @@ func _build_station(st: Dictionary, center: Vector2) -> void:
 			_build_props(center)
 		"weapon":
 			_build_weapon_showcase(st["weapon"], center)
+		"portal":
+			_build_portal_preview(String(st["tex"]), center)
+
+func _build_portal_preview(path: String, center: Vector2) -> void:
+	var tex: Texture2D = _runtime_png(path)
+	if tex == null:
+		return
+	var spr := Sprite2D.new()
+	spr.texture = tex
+	spr.position = center + Vector2(0, -20)
+	spr.scale = Vector2(0.85, 0.85)
+	spr.z_index = 5
+	add_child(spr)
+	# warm glow light that slowly pulses (the "alive/wrong" feel)
+	var lamp := PointLight2D.new()
+	lamp.texture = _runtime_png("res://assets/light_radial.png")
+	lamp.color = Color(1.0, 0.82, 0.4)
+	lamp.energy = 0.9
+	lamp.texture_scale = 1.4
+	lamp.position = center + Vector2(0, 10)
+	add_child(lamp)
+	_fx.append({"kind": "portal_pulse", "node": lamp, "t": 0.0})
+
+func _runtime_png(path: String) -> Texture2D:
+	if ResourceLoader.exists(path):
+		var t: Texture2D = load(path) as Texture2D
+		if t != null:
+			return t
+	if not FileAccess.file_exists(path):
+		return null
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return null
+	var img := Image.new()
+	if img.load_png_from_buffer(f.get_buffer(f.get_length())) != OK:
+		return null
+	return ImageTexture.create_from_image(img)
 
 func _pen_walls(center: Vector2, half: Vector2, open_front: bool) -> void:
 	var th: float = WALL_TH
@@ -1316,7 +1361,7 @@ func _build_hud() -> void:
 	cats.add_theme_constant_override("separation", 6)
 	cats.position = Vector2(16, 10)
 	layer.add_child(cats)
-	for c in ["ENEMIES", "WEAPONS", "FX", "PROPS", "LEVELS"]:
+	for c in ["ENEMIES", "WEAPONS", "FX", "PROPS", "PORTALS", "LEVELS"]:
 		var cb := Button.new()
 		cb.text = c
 		cb.focus_mode = Control.FOCUS_NONE
@@ -1336,6 +1381,13 @@ func _dev_button(parent: Node, text: String, cb: Callable) -> void:
 # ── loop ─────────────────────────────────────────────────────────────────────
 func _process(delta: float) -> void:
 	for d in _fx:
+		# Portal glow: a slow, continuous pulse (not an interval spawner).
+		if String(d["kind"]) == "portal_pulse":
+			d["t"] += delta
+			var lamp := d["node"] as PointLight2D
+			if is_instance_valid(lamp):
+				lamp.energy = 0.7 + 0.35 * sin(float(d["t"]) * 2.2)
+			continue
 		d["t"] -= delta
 		if d["t"] <= 0.0:
 			d["t"] = d["interval"]
