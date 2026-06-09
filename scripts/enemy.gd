@@ -13,6 +13,8 @@ static var _stuff_big: Texture2D = null
 static var _stuff_small: Texture2D = null
 static var _stain_tex: Array = []   # persistent floor/wall stuffing decals
 var _stuffing_mult: float = 1.0     # per-enemy size of the stuffing puff (skeletons shrink it)
+var shadow_abs_y: float = -1.0      # if >=0, absolute shadow feet-offset (non-bear rigs)
+var shadow_abs_w: float = 64.0      # absolute shadow width when shadow_abs_y is used
 const BrownUpperTexture := preload("res://assets/brown_upper.png")
 const BrownLegsTexture := preload("res://assets/brown_legs.png")
 const StuffingTexture := preload("res://assets/stuffing.png")
@@ -242,14 +244,21 @@ func _spawn_contact_shadow() -> void:
 	if has_node("DropShadow"):
 		return
 	var rig := get_node_or_null("Rig") as Node2D
-	var k: float = rig.scale.x if rig != null else 0.28
+	var k: float = absf(rig.scale.x) if rig != null else 0.28
 	var sh := Sprite2D.new()
 	sh.name = "DropShadow"
 	sh.texture = SoftShadowTex
 	sh.z_index = -1
-	sh.position = Vector2(0, 108.0 * k)
 	var tw: float = float(SoftShadowTex.get_width())
-	sh.scale = Vector2((300.0 * k) / tw, (120.0 * k) / tw)   # wide, short ellipse
+	# The bear formula (108*k etc.) assumes a ~0.3 rig scale on a 256px sprite. Mobs
+	# with a very different rig (skeletons at 1.9-2.8) set absolute values instead,
+	# otherwise the shadow lands hundreds of px below them and reads as "no shadow".
+	if shadow_abs_y >= 0.0:
+		sh.position = Vector2(0, shadow_abs_y)
+		sh.scale = Vector2(shadow_abs_w / tw, (shadow_abs_w * 0.42) / tw)
+	else:
+		sh.position = Vector2(0, 108.0 * k)
+		sh.scale = Vector2((300.0 * k) / tw, (120.0 * k) / tw)   # wide, short ellipse
 	sh.modulate = Color(0.0, 0.0, 0.0, 0.9)                  # alpha lives in the texture
 	add_child(sh)
 	move_child(sh, 0)
@@ -758,8 +767,7 @@ func _spawn_stuffing(big: bool) -> void:
 # Leave a lingering stuffing STAIN on the floor (or the wall, if killed next to
 # one) — fades after a while so they don't pile up and cost FPS.
 func _spawn_kill_stain() -> void:
-	if randf() > 0.6 and not is_boss:
-		return   # bosses ALWAYS leave a stain
+	pass   # every kill leaves a stain now (was a 40% gate — felt inconsistent)
 	var parent := get_parent()
 	if not is_instance_valid(parent):
 		return

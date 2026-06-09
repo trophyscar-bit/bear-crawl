@@ -40,6 +40,8 @@ func _ready() -> void:
 	touch_damage = 1
 	throws_stars = false
 	_stuffing_mult = 0.7   # skeletons get a 30%-smaller stuffing swoosh
+	shadow_abs_y = 56.0    # shadow at the skeleton's feet (its rig scale is large)
+	shadow_abs_w = 60.0
 	super._ready()
 	# Pin the shared HP bar just over his head (rig scale is large).
 	if is_instance_valid(_hpbar_bg):
