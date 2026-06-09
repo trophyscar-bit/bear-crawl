@@ -248,6 +248,53 @@ func _spawn_contact_shadow() -> void:
 	add_child(sh)
 	move_child(sh, 0)
 
+var _avoid_cached: Vector2 = Vector2.ZERO
+var _avoid_t: float = 0.0
+
+# Accumulated steer-away from obstacles, live hazards, and neighbouring enemies.
+# Called on a throttle (not every frame) so the swarm stays cheap.
+func _compute_avoidance(to_player: Vector2) -> Vector2:
+	var avoid: Vector2 = Vector2.ZERO
+	for obs in get_tree().get_nodes_in_group("obstacles"):
+		if obs is Node2D:
+			var off: Vector2 = global_position - (obs as Node2D).global_position
+			var dist: float = off.length()
+			if dist < AVOID_RADIUS and dist > 0.5:
+				var strength: float = 1.0 - dist / AVOID_RADIUS
+				var away: Vector2 = off / dist
+				var tang: Vector2 = Vector2(-away.y, away.x)
+				if tang.dot(to_player) < 0.0:
+					tang = -tang
+				avoid += (away * AVOID_REPULSION + tang * AVOID_TANGENT) * strength
+	for h in get_tree().get_nodes_in_group("hazards"):
+		if not (h is Node2D):
+			continue
+		if h.has_method("is_dangerous") and not (h as Node).is_dangerous():
+			continue
+		var hoff: Vector2 = global_position - (h as Node2D).global_position
+		var hdist: float = hoff.length()
+		if hdist < HAZARD_AVOID_RADIUS and hdist > 0.5:
+			var hstrength: float = 1.0 - hdist / HAZARD_AVOID_RADIUS
+			var haway: Vector2 = hoff / hdist
+			var htang: Vector2 = Vector2(-haway.y, haway.x)
+			if htang.dot(to_player) < 0.0:
+				htang = -htang
+			avoid += (haway * HAZARD_AVOID_REPULSION + htang * HAZARD_AVOID_TANGENT) * hstrength
+	# Enemy separation — cheap squared-distance reject before any sqrt.
+	var sep_sq: float = SEPARATION_RADIUS * SEPARATION_RADIUS
+	for other in get_tree().get_nodes_in_group("enemies"):
+		if other == self or not (other is Node2D):
+			continue
+		var off2: Vector2 = global_position - (other as Node2D).global_position
+		var dsq: float = off2.length_squared()
+		if dsq > 0.001 and dsq < sep_sq:
+			var d: float = sqrt(dsq)
+			var s: float = 1.0 - d / SEPARATION_RADIUS
+			if d < 4.0:
+				off2 = Vector2.RIGHT.rotated(randf() * TAU)
+			avoid += (off2 / max(d, 1.0)) * SEPARATION_REPULSION * s
+	return avoid
+
 func _physics_process(delta: float) -> void:
 	if _dying:
 		_process_death(delta)
@@ -300,48 +347,14 @@ func _physics_process(delta: float) -> void:
 		# Too close — circle the player instead of grinding into him.
 		var tang: Vector2 = Vector2(-desired.y, desired.x) * float(_orbit_sign)
 		desired = (desired * 0.15 + tang * 0.85).normalized()
-	var avoid: Vector2 = Vector2.ZERO
-	for obs in get_tree().get_nodes_in_group("obstacles"):
-		if obs is Node2D:
-			var off: Vector2 = global_position - (obs as Node2D).global_position
-			var dist: float = off.length()
-			if dist < AVOID_RADIUS and dist > 0.5:
-				var strength: float = 1.0 - dist / AVOID_RADIUS
-				var away: Vector2 = off / dist
-				var tang: Vector2 = Vector2(-away.y, away.x)
-				if tang.dot(to_player) < 0.0:
-					tang = -tang
-				avoid += (away * AVOID_REPULSION + tang * AVOID_TANGENT) * strength
-	# Hazards — only avoid the ones currently dangerous. Cold ones we walk over,
-	# which is what lets the player lure us onto pulse tiles right before they go hot.
-	for h in get_tree().get_nodes_in_group("hazards"):
-		if not (h is Node2D):
-			continue
-		if h.has_method("is_dangerous") and not (h as Node).is_dangerous():
-			continue
-		var hoff: Vector2 = global_position - (h as Node2D).global_position
-		var hdist: float = hoff.length()
-		if hdist < HAZARD_AVOID_RADIUS and hdist > 0.5:
-			var hstrength: float = 1.0 - hdist / HAZARD_AVOID_RADIUS
-			var haway: Vector2 = hoff / hdist
-			var htang: Vector2 = Vector2(-haway.y, haway.x)
-			if htang.dot(to_player) < 0.0:
-				htang = -htang
-			avoid += (haway * HAZARD_AVOID_REPULSION + htang * HAZARD_AVOID_TANGENT) * hstrength
-	# Enemy-to-enemy separation — pushes apart from neighbors so the swarm
-	# spreads out instead of grinding into one tile when kited.
-	for other in get_tree().get_nodes_in_group("enemies"):
-		if other == self or not (other is Node2D):
-			continue
-		var off: Vector2 = global_position - (other as Node2D).global_position
-		var d: float = off.length()
-		if d > 0.001 and d < SEPARATION_RADIUS:
-			var s: float = 1.0 - d / SEPARATION_RADIUS
-			# At very small distances inject a tiny random jitter so two
-			# perfectly-overlapping enemies don't deadlock at zero distance.
-			if d < 4.0:
-				off = Vector2.RIGHT.rotated(randf() * TAU)
-			avoid += (off / max(d, 1.0)) * SEPARATION_REPULSION * s
+	# Avoidance (obstacles + hazards + enemy separation) is O(N) per enemy → O(N²)
+	# for the swarm. It doesn't need 60 Hz precision, so recompute ~11×/sec and
+	# reuse the cached vector in between. Huge FPS win with big swarms.
+	_avoid_t -= delta
+	if _avoid_t <= 0.0:
+		_avoid_t = 0.09
+		_avoid_cached = _compute_avoidance(to_player)
+	var avoid: Vector2 = _avoid_cached
 	# Dodge-when-shot: a brief sideways juke layered over the normal chase so the
 	# enemy slides out of a held stream of fire. Decays the hit-streak too.
 	_hit_streak = maxf(0.0, _hit_streak - delta * 1.2)

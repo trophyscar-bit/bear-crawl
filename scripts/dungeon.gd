@@ -840,7 +840,7 @@ func _trigger_rush_event() -> void:
 	var scene: PackedScene = _wave_pick_scene()
 	var fn: String = scene.resource_path.get_file().get_basename()
 	var nm: String = WAVE_NAMES.get(fn, fn.to_upper())
-	var n: int = clampi(int(round(12.0 * _wave_power())), 10, 34)
+	var n: int = clampi(int(round(10.0 * _wave_power())), 9, 22)
 	_flash_event("%s  RUSH!" % nm, Color(1.0, 0.55, 0.2))
 	Juice.shake(0.35)
 	# Spawn them in a ring around the player so they converge from all sides.
@@ -892,15 +892,15 @@ func _wave_pick_scene() -> PackedScene:
 # size so a nuke build gets BURIED in mobs instead of walking empty rooms — you
 # feel strong, but you never stop fighting.
 func _wave_power() -> float:
-	return clampf(ArpgState.challenge_ratio(), 1.0, 3.2)
+	return clampf(ArpgState.challenge_ratio(), 1.0, 2.8)
 
 func _wave_alive_cap() -> int:
-	var base: int = 26
+	var base: int = 24
 	match GameSettings.difficulty:
-		0: base = 17   # EASY
-		2: base = 38   # HARD
-	var grown: int = base + int(_wave_t / 13.0) * 5   # ramps much faster now
-	return mini(int(round(float(grown) * _wave_power())), 130)   # big swarms when you're OP
+		0: base = 16   # EASY
+		2: base = 34   # HARD
+	var grown: int = base + int(_wave_t / 14.0) * 4
+	return mini(int(round(float(grown) * _wave_power())), 85)   # capped for perf (was 130)
 
 func _wave_interval() -> float:
 	# Batches come faster the longer you're in + the stronger you are.
