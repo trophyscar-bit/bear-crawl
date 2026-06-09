@@ -4,9 +4,8 @@ extends "res://scripts/critter.gd"
 # SIGHT on you; then it lights up (flashing) and RUSHES fast. Dies in one hit but
 # detonates a big blast — kill it at range or get clear.
 
-@export var blast_radius: float = 252.0
+@export var blast_radius: float = 315.0   # +25% bigger blast
 @export var blast_damage: int = 4
-@export var blast_enemy_damage: int = 18   # friendly fire — the blast also shreds nearby mobs
 var _flash_t: float = 0.0
 var _activated: bool = false
 var _fast_speed: float = 0.0
@@ -51,11 +50,13 @@ func _detonate() -> void:
 			and (p as Node2D).global_position.distance_to(global_position) <= blast_radius \
 			and p.has_method("take_damage"):
 		p.take_damage(blast_damage)
-	# Friendly fire — the blast also shreds nearby mobs (lure bombers into a crowd).
+	# Friendly fire — the blast strips 99% of any mob's HP in range (near-kills the
+	# whole crowd; lure bombers into a pack and watch it clear).
 	for e in get_tree().get_nodes_in_group("enemies"):
 		if e == self or not is_instance_valid(e):
 			continue
 		if (e as Node2D).global_position.distance_to(global_position) <= blast_radius \
 				and e.has_method("take_damage"):
-			e.take_damage(blast_enemy_damage)
+			var hp: float = float(e.get("health")) if "health" in e else 1.0
+			e.take_damage(maxi(1, int(ceil(hp * 0.99))))
 	Juice.shake(0.45)

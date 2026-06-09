@@ -119,14 +119,14 @@ func _process(delta: float) -> void:
 			# Scale grows over the journey + alpha fades at the tail end
 			ps.node.scale = Vector2.ONE * lerp(0.6, 1.4, tp)
 			ps.node.modulate.a = clamp(1.0 - pow(tp, 3.0), 0.0, 1.0)
-		# Deal damage once when the lead puff hits the middle of the line.
-		if not _dealt and _t > 0.18:
-			_dealt = true
-			_apply_damage()
+		# Continuous hit check across the WHOLE active window (was a single early
+		# snapshot that the travelling puff usually outran → felt like no damage).
+		if not _dealt:
+			_try_apply_damage()
 		if _t >= active:
 			queue_free()
 
-func _apply_damage() -> void:
+func _try_apply_damage() -> void:
 	var pl := get_tree().get_first_node_in_group("player")
 	if not (pl is Node2D):
 		return
@@ -135,6 +135,8 @@ func _apply_damage() -> void:
 	var side: Vector2 = Vector2(-fwd.y, fwd.x)
 	var along: float = off.dot(fwd)
 	var lateral: float = abs(off.dot(side))
-	if along >= 0.0 and along <= length and lateral <= width * 0.5:
+	# Wider lateral band so the hitbox matches the fat visual puff.
+	if along >= -20.0 and along <= length and lateral <= maxf(width, 100.0) * 0.5:
 		if pl.has_method("take_damage"):
 			pl.take_damage(damage)
+			_dealt = true
