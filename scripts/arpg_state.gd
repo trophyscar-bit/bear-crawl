@@ -202,6 +202,7 @@ func reset_run() -> void:
 	enemy_bright = 1
 	backrooms_pack = 5
 	weapon = _starter_weapon()
+	Stats.weapon_equipped(String(weapon.get("name", "?")))
 	emit_signal("weapon_changed", weapon)
 	emit_signal("stats_changed")
 
@@ -311,6 +312,7 @@ func try_equip(item: Dictionary) -> bool:
 	var carried: int = maxi(int(item.get("lvl", 1)), int(floor(float(old_lvl) * 0.5)))
 	var arch: Dictionary = _archetype_by_name(String(item.get("name", "")))
 	weapon = _build_weapon(arch, carried, int(item.get("rarity", 0)))
+	Stats.weapon_equipped(String(weapon.get("name", "?")))
 	emit_signal("weapon_changed", weapon)
 	var col: Color = RARITY_COLORS[int(weapon.get("rarity", 0))]
 	emit_signal("toast", "%s  Lv %d  equipped" % [weapon.get("name", "Weapon"), carried], col)

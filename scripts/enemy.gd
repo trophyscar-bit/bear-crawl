@@ -14,6 +14,9 @@ static var _stuff_small: Texture2D = null
 static var _stain_tex: Array = []   # persistent floor/wall stuffing decals
 var _stuffing_mult: float = 1.0     # per-enemy size of the stuffing puff (skeletons shrink it)
 var mob_type: String = "?"          # set by the spawner — for analytics
+var _spawn_ms: int = 0              # for time-to-kill
+var _dmg_recv: int = 0             # total damage taken (≈ effective HP)
+var _hits_recv: int = 0           # number of hits taken to die
 var shadow_abs_y: float = -1.0      # if >=0, absolute shadow feet-offset (non-bear rigs)
 var shadow_abs_w: float = 64.0      # absolute shadow width when shadow_abs_y is used
 const BrownUpperTexture := preload("res://assets/brown_upper.png")
@@ -183,6 +186,7 @@ func _ready() -> void:
 		# Stagger initial cooldowns so bears don't all spit at once on entry.
 		_spit_timer = randf_range(1.0, SPIT_COOLDOWN)
 	_spawn_contact_shadow()
+	_spawn_ms = Time.get_ticks_msec()
 	if is_boss:
 		throws_stars = true
 		throw_interval = 2.1              # a bit more breathing room between volleys
@@ -807,6 +811,8 @@ func _spawn_kill_stain() -> void:
 func take_damage(amount: int, crit: bool = false) -> void:
 	if _dying:
 		return
+	_dmg_recv += amount
+	_hits_recv += 1
 	_spawn_damage_number(amount, crit)
 	if randf() < 0.22:
 		_spawn_stuffing(false)   # small stuffing puff on some hits
@@ -906,7 +912,9 @@ func _kill_collision() -> void:
 
 func _begin_death() -> void:
 	_dying = true
-	Stats.mob_killed(mob_type)
+	var ttk: float = float(Time.get_ticks_msec() - _spawn_ms) / 1000.0
+	var killer: String = String(ArpgState.weapon.get("name", "?")) if ArpgState.active else "?"
+	Stats.enemy_killed_detail(mob_type, ttk, _hits_recv, _dmg_recv, killer)
 	_spawn_stuffing(true)    # big stuffing burst on death
 	_spawn_kill_stain()      # + a lingering floor/wall stain
 	if is_boss:

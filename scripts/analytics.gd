@@ -29,6 +29,10 @@ func _blank_run() -> Dictionary:
 		"mobs_spawned": {}, "mobs_killed": {},
 		"damage_sources": {},
 		"alive_peak": 0,
+		"enemy_detail": {},     # type -> {count, ttk_sum, hits_sum, dmg_sum}
+		"kills_by_weapon": {},  # weapon name -> kills
+		"weapon_equips": {},    # weapon name -> times equipped/picked
+		"pick_order": [],       # ordered list of level-up ids (the build path)
 	}
 
 func start_run() -> void:
@@ -66,6 +70,26 @@ func weapon_dropped(wname: String, rarity: int) -> void:
 
 func upgrade_picked(id: String) -> void:
 	_inc("upgrades_picked", id)
+	if not run.is_empty():
+		(run["pick_order"] as Array).append(id)
+
+func weapon_equipped(wname: String) -> void:
+	_inc("weapon_equips", wname)
+
+# Full per-kill detail: time-to-kill (s), hits taken to die, total damage taken
+# to die (~effective HP), and which weapon was equipped at the kill.
+func enemy_killed_detail(t: String, ttk: float, hits: int, dmg: int, weapon: String) -> void:
+	if run.is_empty():
+		return
+	_inc("mobs_killed", t)
+	_inc("kills_by_weapon", weapon)
+	var ed: Dictionary = run["enemy_detail"]
+	var e: Dictionary = ed.get(t, {"count": 0, "ttk_sum": 0.0, "hits_sum": 0, "dmg_sum": 0})
+	e["count"] = int(e["count"]) + 1
+	e["ttk_sum"] = float(e["ttk_sum"]) + ttk
+	e["hits_sum"] = int(e["hits_sum"]) + hits
+	e["dmg_sum"] = int(e["dmg_sum"]) + dmg
+	ed[t] = e
 
 func shop_bought(id: String, cost: int) -> void:
 	_inc("shop_bought", id); _add("gold_spent", cost)
@@ -117,10 +141,29 @@ func _fold_into_life(r: Dictionary) -> void:
 	var oc: Dictionary = life.get("outcomes", {})
 	oc[String(r["outcome"])] = int(oc.get(String(r["outcome"]), 0)) + 1
 	life["outcomes"] = oc
-	for d in ["weapons_dropped", "weapons_by_rarity", "upgrades_picked", "shop_bought", "mobs_spawned", "mobs_killed", "damage_sources"]:
+	for d in ["weapons_dropped", "weapons_by_rarity", "upgrades_picked", "shop_bought", "mobs_spawned", "mobs_killed", "damage_sources", "kills_by_weapon", "weapon_equips"]:
 		var dst: Dictionary = life.get(d, {})
 		_merge_dict(dst, r.get(d, {}))
 		life[d] = dst
+	# nested enemy detail (count/ttk/hits/dmg per type)
+	var led: Dictionary = life.get("enemy_detail", {})
+	for t in (r.get("enemy_detail", {}) as Dictionary).keys():
+		var dd: Dictionary = led.get(t, {"count": 0, "ttk_sum": 0.0, "hits_sum": 0, "dmg_sum": 0})
+		var src: Dictionary = r["enemy_detail"][t]
+		for k in src.keys():
+			dd[k] = float(dd.get(k, 0)) + float(src[k])
+		led[t] = dd
+	life["enemy_detail"] = led
+	# per-run history (capped) for trend charts
+	var hist: Array = life.get("history", [])
+	hist.append({
+		"outcome": r["outcome"], "floor": int(r["floor_reached"]), "duration": float(r["duration"]),
+		"gold": int(r["gold_gained"]), "levels": int(r["levels"]), "dmg": int(r["damage_taken"]),
+		"alive_peak": int(r["alive_peak"]), "picks": r.get("pick_order", []),
+	})
+	if hist.size() > 400:
+		hist = hist.slice(hist.size() - 400)
+	life["history"] = hist
 
 func reset_lifetime() -> void:
 	life = {}
@@ -173,4 +216,16 @@ func report() -> String:
 	s += "Most-spawned mobs:\n" + _top(life.get("mobs_spawned", {}))
 	s += "Biggest damage SOURCES:\n" + _top(life.get("damage_sources", {}))
 	s += "Weapon drops by rarity:\n" + _top(life.get("weapons_by_rarity", {}))
+	s += "Kills by weapon:\n" + _top(life.get("kills_by_weapon", {}))
+	s += "\nENEMY profile (avg per kill):\n"
+	s += "    %-15s %5s %6s %6s %7s\n" % ["type", "kills", "TTK", "hits", "HP~"]
+	var ed: Dictionary = life.get("enemy_detail", {})
+	var rows: Array = []
+	for t in ed.keys():
+		rows.append([t, ed[t]])
+	rows.sort_custom(func(a, b): return int(a[1]["count"]) > int(b[1]["count"]))
+	for i in mini(12, rows.size()):
+		var e: Dictionary = rows[i][1]
+		var c: float = maxf(1.0, float(e["count"]))
+		s += "    %-15s %5d %5.1fs %6.1f %7.1f\n" % [rows[i][0], int(e["count"]), float(e["ttk_sum"]) / c, float(e["hits_sum"]) / c, float(e["dmg_sum"]) / c]
 	return s
