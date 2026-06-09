@@ -23,6 +23,7 @@ var light_mode: int = 1   # which live lighting preset is active (persists acros
 var light_boost: int = 1  # 1-5 brightness pump on all light sources (persists)
 var brightness_level: int = 2  # dungeon darkness preset 1=dark 2=medium 3=bright (persists)
 var auto_sell_rarity: bool = false  # auto-sell drops of same-or-lower rarity (persists)
+var backrooms_next: bool = false    # next floor loads as a BACKROOMS stage (boss-portal)
 var enemy_bright: int = 1 # 1-3 enemy self-illumination (persists)
 var backrooms_pack: int = 5  # backrooms asset pack (locked to 5 — the chosen look)
 var no_projectile_glow: bool = false  # backrooms turns off the projectile glow

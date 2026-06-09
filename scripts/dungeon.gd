@@ -118,6 +118,10 @@ var _hud_boss_label: Label
 func _ready() -> void:
 	randomize()
 	Engine.time_scale = 1.0   # defensive: clear any stale slow-mo from a prior scene
+	# Boss-portal sent us to a backrooms stage — render this floor as backrooms.
+	if ArpgState.backrooms_next:
+		theme = "backrooms"
+		ArpgState.backrooms_next = false
 	if theme == "backrooms":
 		_bk_wall = _load_tex_opt("res://assets/backrooms_wall.png")
 		_bk_floor = _load_tex_opt("res://assets/backrooms_floor.png")
@@ -789,6 +793,7 @@ var _wave_t: float = 0.0
 var _wave_spawn_t: float = 0.0
 var _wave_started: bool = false
 var _wave_last_unlocked: int = 0
+var _event_t: float = 70.0   # countdown to the next themed RUSH event
 var _hud_time_tl: Label = null
 var _hud_time_br: Label = null
 
@@ -820,6 +825,56 @@ func _wave_tick(delta: float) -> void:
 	if _wave_spawn_t <= 0.0:
 		_wave_spawn_t = _wave_interval()
 		_wave_spawn_batch()
+	# Themed RUSH events — once the floor has ramped, every ~minute a horde of ONE
+	# enemy type pours in around you (a wall of teddy bombers, a swarm of long
+	# bears, etc.). The fun chaos beat.
+	if _wave_t > 40.0:
+		_event_t -= delta
+		if _event_t <= 0.0:
+			_event_t = randf_range(55.0, 85.0)
+			_trigger_rush_event()
+
+func _trigger_rush_event() -> void:
+	if not is_instance_valid(_player):
+		return
+	var scene: PackedScene = _wave_pick_scene()
+	var fn: String = scene.resource_path.get_file().get_basename()
+	var nm: String = WAVE_NAMES.get(fn, fn.to_upper())
+	var n: int = clampi(int(round(12.0 * _wave_power())), 10, 34)
+	_flash_event("%s  RUSH!" % nm, Color(1.0, 0.55, 0.2))
+	Juice.shake(0.35)
+	# Spawn them in a ring around the player so they converge from all sides.
+	for i in n:
+		var pos: Vector2 = floor_point_near(_player.global_position, 460.0, 880.0)
+		_spawn_one(scene, pos)
+
+func _flash_event(text: String, color: Color) -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 50
+	add_child(layer)
+	var lbl := Label.new()
+	lbl.text = text
+	lbl.add_theme_font_size_override("font_size", 76)
+	lbl.add_theme_color_override("font_color", color)
+	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	lbl.add_theme_constant_override("outline_size", 7)
+	var lf := FontFile.new()
+	if lf.load_dynamic_font("res://assets/anton.ttf") == OK:
+		lbl.add_theme_font_override("font", lf)
+	lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lbl.anchor_left = 0.0; lbl.anchor_right = 1.0
+	lbl.offset_top = 200.0
+	lbl.modulate.a = 0.0
+	layer.add_child(lbl)
+	var tw := lbl.create_tween()
+	tw.tween_property(lbl, "modulate:a", 1.0, 0.12)
+	tw.tween_property(lbl, "modulate:a", 0.2, 0.14)
+	tw.tween_property(lbl, "modulate:a", 1.0, 0.12)
+	tw.tween_interval(1.0)
+	tw.tween_property(lbl, "modulate:a", 0.0, 0.5)
+	tw.tween_callback(layer.queue_free)
+	lbl.scale = Vector2(1.3, 1.3)
+	lbl.create_tween().tween_property(lbl, "scale", Vector2.ONE, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func _wave_unlocked_count() -> int:
 	var base: int = 1 + (ArpgState.depth - 1) * 2   # floor 1: skeletons only for the 1st minute
@@ -1185,6 +1240,9 @@ func _process(delta: float) -> void:
 		if _hud_boss_root != null:
 			_hud_boss_root.visible = false
 		_on_toast("Guardian slain — the descent opens!", Color(1.0, 0.85, 0.45))
+		# 10% chance: a BACKROOMS portal tears open where the guardian fell.
+		if theme != "backrooms" and randf() < 0.10:
+			_spawn_backrooms_portal((_boss as Node2D).global_position)
 	if _minimap:
 		_minimap.queue_redraw()
 	if _hp_update.is_valid() and is_instance_valid(_player):
@@ -1209,6 +1267,61 @@ func _on_exit() -> void:
 	Engine.time_scale = 1.0   # never carry slow-mo into the next scene
 	ArpgState.descend()
 	get_tree().change_scene_to_file("res://scenes/shop.tscn")
+
+# ── Backrooms boss-portal (10% on boss death) ───────────────────────────────
+func _spawn_backrooms_portal(pos: Vector2) -> void:
+	# Land it on solid floor near where the boss died.
+	var p: Vector2 = pos
+	if floor_at_world(pos) == false:
+		p = floor_point_near(pos, 0.0, 260.0)
+	var area := Area2D.new()
+	area.position = p
+	area.collision_mask = 1
+	var cs := CollisionShape2D.new()
+	var c := CircleShape2D.new(); c.radius = 46.0
+	cs.shape = c
+	area.add_child(cs)
+	var spr := Sprite2D.new()
+	var t: Texture2D = _load_tex_mip("res://assets/portal_backrooms_b.png")
+	if t != null:
+		spr.texture = t
+	spr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	spr.scale = Vector2(0.62, 0.62)
+	spr.z_index = 3
+	area.add_child(spr)
+	var glow := PointLight2D.new()
+	glow.texture = LightTex
+	glow.color = Color(1.0, 0.82, 0.4)   # warm backrooms spill
+	glow.energy = 1.5
+	glow.texture_scale = 1.5
+	glow.position = Vector2(0, -10)
+	area.add_child(glow)
+	var stw := glow.create_tween().set_loops()
+	stw.tween_property(glow, "energy", 2.0, 1.1).set_trans(Tween.TRANS_SINE)
+	stw.tween_property(glow, "energy", 1.2, 1.1).set_trans(Tween.TRANS_SINE)
+	var entered := [false]
+	area.body_entered.connect(func(b: Node) -> void:
+		if b.is_in_group("player") and not entered[0]:
+			entered[0] = true
+			_enter_backrooms_portal())
+	add_child(area)
+	_flash_event("A  PORTAL  OPENS…", Color(1.0, 0.8, 0.35))
+
+func _enter_backrooms_portal() -> void:
+	if _cleared:
+		return
+	_cleared = true
+	Engine.time_scale = 1.0
+	ArpgState.descend()
+	ArpgState.backrooms_next = true            # next floor renders as backrooms
+	get_tree().change_scene_to_file(ArpgState.dungeon_path)   # skip the merchant — straight in
+
+func floor_at_world(w: Vector2) -> bool:
+	var cx: int = int(w.x / tile)
+	var cy: int = int(w.y / tile)
+	if cy < 0 or cy >= _wall.size() or cx < 0 or cx >= _wall[0].size():
+		return false
+	return not _wall[cy][cx]
 
 # ── dev tools (opened from the pause menu) ──────────────────────────────────
 func dev_heal() -> void:
