@@ -749,7 +749,7 @@ func _spawn_stuffing(big: bool) -> void:
 	var s := StuffingBurstScene.instantiate()
 	s.texture = tex
 	s.global_position = global_position
-	s.scale = Vector2.ONE * (0.72 if big else 0.42)
+	s.scale = Vector2.ONE * (2.1 if big else 1.25)   # ~3x bigger, juicier
 	s.rotation = randf() * TAU
 	get_parent().add_child(s)
 

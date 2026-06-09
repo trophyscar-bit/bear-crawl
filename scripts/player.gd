@@ -8,6 +8,8 @@ const BodyChunkScene := preload("res://scenes/body_chunk.tscn")
 const BearUpperTexture := preload("res://assets/bear_upper.png")
 const BearLegsTexture := preload("res://assets/bear_legs.png")
 const StuffingTexture := preload("res://assets/stuffing.png")
+const StuffingBurstScene := preload("res://scenes/stuffing_burst.tscn")
+static var _stuff_burst_tex: Texture2D = null   # white stuffing splatter (shared)
 # NOTE: loaded at runtime, NOT preloaded — if Godot hasn't imported the PNG
 # yet (no .import sidecar), preload() would fail at parse time and break the
 # entire script, killing input handling. load() returns null on miss instead.
@@ -563,6 +565,24 @@ func on_room_entered() -> void:
 func add_pizza_bombs(n: int) -> void:
 	grant_special("bomb", n)
 
+func _spawn_hit_stuffing() -> void:
+	if _stuff_burst_tex == null:
+		var path := "res://assets/stuffing_burst.png"
+		if FileAccess.file_exists(path):
+			var b := FileAccess.get_file_as_bytes(path)
+			if b.size() > 0:
+				var img := Image.new()
+				if img.load_png_from_buffer(b) == OK:
+					_stuff_burst_tex = ImageTexture.create_from_image(img)
+	if _stuff_burst_tex == null or not is_instance_valid(get_parent()):
+		return
+	var s := StuffingBurstScene.instantiate()
+	s.texture = _stuff_burst_tex
+	s.global_position = global_position
+	s.scale = Vector2.ONE * 2.0
+	s.rotation = randf() * TAU
+	get_parent().add_child(s)
+
 func take_damage(amount: int) -> void:
 	if _dying or _invuln_time > 0.0:
 		return
@@ -594,6 +614,7 @@ func take_damage(amount: int) -> void:
 		return
 	_invuln_time = INVULN_DURATION
 	health -= amount
+	_spawn_hit_stuffing()   # Rupert puffs stuffing when hit
 	modulate = Color(1, 0.4, 0.4)
 	# AAA game-feel: kick the camera + a sliver of hit-stop so damage lands hard,
 	# plus a quick chromatic-aberration flare.
