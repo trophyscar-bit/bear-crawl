@@ -837,22 +837,22 @@ func _wave_pick_scene() -> PackedScene:
 # size so a nuke build gets BURIED in mobs instead of walking empty rooms — you
 # feel strong, but you never stop fighting.
 func _wave_power() -> float:
-	return clampf(ArpgState.challenge_ratio(), 1.0, 2.6)
+	return clampf(ArpgState.challenge_ratio(), 1.0, 3.2)
 
 func _wave_alive_cap() -> int:
-	var base: int = 20
+	var base: int = 26
 	match GameSettings.difficulty:
-		0: base = 13   # EASY
-		2: base = 30   # HARD
-	var grown: int = base + int(_wave_t / 18.0) * 3   # ramps faster over the run
-	return mini(int(round(float(grown) * _wave_power())), 78)   # scaled by how OP you are
+		0: base = 17   # EASY
+		2: base = 38   # HARD
+	var grown: int = base + int(_wave_t / 13.0) * 5   # ramps much faster now
+	return mini(int(round(float(grown) * _wave_power())), 130)   # big swarms when you're OP
 
 func _wave_interval() -> float:
 	# Batches come faster the longer you're in + the stronger you are.
-	return maxf(0.6, (3.0 - _wave_t / 70.0) / _wave_power())
+	return maxf(0.40, (2.6 - _wave_t / 60.0) / _wave_power())
 
 func _wave_batch_size() -> int:
-	return maxi(2, int(round((2.0 + _wave_t / 45.0) * _wave_power())))
+	return maxi(3, int(round((3.0 + _wave_t / 32.0) * _wave_power())))
 
 func _wave_spawn_batch() -> void:
 	var alive: int = get_tree().get_nodes_in_group("enemies").size()
