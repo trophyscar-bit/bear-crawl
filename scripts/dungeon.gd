@@ -273,17 +273,29 @@ func _room_center_world(r: Rect2i) -> Vector2:
 func world_to_fine(p: Vector2) -> Vector2:
 	return Vector2(p.x / tile, p.y / tile)
 
-func floor_point_near(origin: Vector2, dmin: float, dmax: float) -> Vector2:
+func floor_point_near(origin: Vector2, dmin: float, dmax: float, require_los: bool = false) -> Vector2:
 	# A guaranteed floor cell (inside a room) within [dmin, dmax] of `origin`. Used by
-	# the boss teleport so it can't land in rock / outside the playable area.
-	for _try in 90:
+	# the boss teleport so it can't land in rock / outside the playable area. With
+	# require_los, only returns a spot with a clear line back to `origin` (so the
+	# boss can't blink to the far side of a wall and get lost).
+	var space := get_world_2d().direct_space_state
+	for _try in 120:
 		var room: Rect2i = _rooms[randi() % _rooms.size()]
 		var x: int = randi_range(room.position.x, room.position.x + room.size.x - 1)
 		var y: int = randi_range(room.position.y, room.position.y + room.size.y - 1)
 		var w := Vector2((x + 0.5) * tile, (y + 0.5) * tile)
 		var d: float = w.distance_to(origin)
-		if d >= dmin and d <= dmax:
-			return w
+		if d < dmin or d > dmax:
+			continue
+		if require_los:
+			var q := PhysicsRayQueryParameters2D.create(w, origin)
+			q.collision_mask = 1
+			if not space.intersect_ray(q).is_empty():
+				continue   # a wall sits between this spot and the player
+		return w
+	# Relax LOS rather than fail outright.
+	if require_los:
+		return floor_point_near(origin, dmin, dmax, false)
 	return _random_floor_world(0.0, false)
 
 func _random_floor_world(min_dist_from_start: float = 0.0, avoid_start: bool = false) -> Vector2:
@@ -468,17 +480,18 @@ func _spawn_exit() -> void:
 	glow.energy = 1.4
 	glow.texture_scale = 1.6
 	area.add_child(glow)
-	# Spiral staircase going down — bigger, detailed stairwell sprite.
+	# Stone stairwell descending into the dark — detailed cobblestone sprite.
 	var stairs := Sprite2D.new()
 	var st_tex: Texture2D = _load_tex_mip("res://assets/stairs_down_v2.png")
 	stairs.texture = st_tex if st_tex != null else StairsTex
 	stairs.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	stairs.scale = Vector2(0.66, 0.66)   # ~2× the old footprint
+	stairs.scale = Vector2(0.7, 0.7)
 	stairs.z_index = -2          # sits on the floor, under the player
 	area.add_child(stairs)
-	# Slow rotation so the stairwell feels alive.
-	var stw := stairs.create_tween().set_loops()
-	stw.tween_property(stairs, "rotation", TAU, 14.0)
+	# Gentle "breathing" pulse on the glow instead of spinning the stairs.
+	var stw := glow.create_tween().set_loops()
+	stw.tween_property(glow, "energy", 1.9, 1.4).set_trans(Tween.TRANS_SINE)
+	stw.tween_property(glow, "energy", 1.2, 1.4).set_trans(Tween.TRANS_SINE)
 	area.body_entered.connect(func(b: Node) -> void:
 		if b.is_in_group("player"):
 			_on_exit())
@@ -820,18 +833,26 @@ func _wave_pick_scene() -> PackedScene:
 		return WAVE_UNLOCKS[randi_range(maxi(0, n - 3), n - 1)]
 	return WAVE_UNLOCKS[randi() % n]
 
+# How overpowered the player is for this depth (1.0 = fair). Drives the swarm
+# size so a nuke build gets BURIED in mobs instead of walking empty rooms — you
+# feel strong, but you never stop fighting.
+func _wave_power() -> float:
+	return clampf(ArpgState.challenge_ratio(), 1.0, 2.6)
+
 func _wave_alive_cap() -> int:
 	var base: int = 20
 	match GameSettings.difficulty:
 		0: base = 13   # EASY
 		2: base = 30   # HARD
-	return base + int(_wave_t / 25.0) * 2   # cap creeps up over the run
+	var grown: int = base + int(_wave_t / 18.0) * 3   # ramps faster over the run
+	return mini(int(round(float(grown) * _wave_power())), 78)   # scaled by how OP you are
 
 func _wave_interval() -> float:
-	return maxf(1.3, 3.2 - _wave_t / 80.0)   # batches come a bit faster over time
+	# Batches come faster the longer you're in + the stronger you are.
+	return maxf(0.6, (3.0 - _wave_t / 70.0) / _wave_power())
 
 func _wave_batch_size() -> int:
-	return 2 + int(_wave_t / 55.0)
+	return maxi(2, int(round((2.0 + _wave_t / 45.0) * _wave_power())))
 
 func _wave_spawn_batch() -> void:
 	var alive: int = get_tree().get_nodes_in_group("enemies").size()

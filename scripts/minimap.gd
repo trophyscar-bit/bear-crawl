@@ -54,6 +54,13 @@ func _draw() -> void:
 		var f = _d.world_to_fine(it)
 		if _seen(int(f.x), int(f.y)):
 			draw_circle(Vector2(f.x * cw, f.y * ch), maxf(cw * 0.7, 1.5), Color(0.6, 0.85, 1.0))
+	# BOSS marker — always visible, even through fog, so he can never be "lost".
+	if is_instance_valid(_d._boss) and not _d._boss_dead:
+		var bp = _d.world_to_fine(_d._boss.global_position)
+		var bc := Vector2(bp.x * cw, bp.y * ch)
+		var pulse: float = 0.55 + 0.45 * sin(Time.get_ticks_msec() * 0.006)
+		draw_circle(bc, maxf(cw * 1.4, 4.5), Color(1.0, 0.2, 0.2, pulse))
+		draw_arc(bc, maxf(cw * 1.9, 7.0), 0.0, TAU, 18, Color(1.0, 0.45, 0.45, 0.95), 1.5)
 	# player — always
 	if is_instance_valid(_d._player):
 		var p = _d.world_to_fine(_d._player.position)

@@ -36,6 +36,7 @@ var _boss_seen: bool = false        # has the boss laid eyes on the player yet?
 var _boss_engage_t: float = 0.0     # 2s grace after first eye-contact before firing
 var _boss_phase2: bool = false      # enraged: same moves + blinks around the arena
 var _tp_timer: float = 0.0          # teleport cadence in phase 2
+var _boss_far_t: float = 0.0        # leash timer — how long the boss has been far away
 # Base KK paw-slam ground attack (ported from v1). Telegraphed drop from above
 # onto the player's position. Long, readable windup (+0.5s over the v1 default).
 var _paw_timer: float = 0.0
@@ -437,6 +438,16 @@ func _physics_process(delta: float) -> void:
 			if _tp_timer <= 0.0:
 				_tp_timer = randf_range(1.9, 3.1)   # ~25% faster blink cadence
 				_boss_teleport()
+		# Leash: if the boss is far from the player for a few seconds (stuck behind
+		# walls / teleported somewhere awkward), warp him back into view. Stops the
+		# "boss at 10% vanished and I can't find him" dead-end.
+		if global_position.distance_to(player.global_position) > 820.0:
+			_boss_far_t += delta
+			if _boss_far_t >= 3.5:
+				_boss_far_t = 0.0
+				_boss_teleport()
+		else:
+			_boss_far_t = 0.0
 
 	# Brown spit blob is legacy main-game only (looked bad) — never in the dungeon.
 	if not ArpgState.active and GameSettings.enemies_spit():
@@ -452,7 +463,8 @@ func _boss_teleport() -> void:
 	# what stops him warping into rock / outside the playable area.
 	var parent := get_parent()
 	if parent != null and parent.has_method("floor_point_near"):
-		global_position = parent.call("floor_point_near", player.global_position, 190.0, 380.0)
+		# require_los → always reappears where the player can see/reach him.
+		global_position = parent.call("floor_point_near", player.global_position, 190.0, 380.0, true)
 		_boss_arrive()
 		return
 	# Fallback (non-dungeon): a few candidates, rejecting any that's inside a wall or
