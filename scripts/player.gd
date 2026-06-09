@@ -10,6 +10,7 @@ const BearLegsTexture := preload("res://assets/bear_legs.png")
 const StuffingTexture := preload("res://assets/stuffing.png")
 const StuffingBurstScene := preload("res://scenes/stuffing_burst.tscn")
 static var _stuff_burst_tex: Texture2D = null   # white stuffing splatter (shared)
+static var _stuff_stain_tex: Texture2D = null   # lingering floor stain (shared)
 # NOTE: loaded at runtime, NOT preloaded — if Godot hasn't imported the PNG
 # yet (no .import sidecar), preload() would fail at parse time and break the
 # entire script, killing input handling. load() returns null on miss instead.
@@ -582,6 +583,32 @@ func _spawn_hit_stuffing() -> void:
 	s.scale = Vector2.ONE * 2.0
 	s.rotation = randf() * TAU
 	get_parent().add_child(s)
+	_spawn_hit_stain()
+
+func _spawn_hit_stain() -> void:
+	if _stuff_stain_tex == null:
+		var p := "res://assets/stuffing_stain%d.png" % (1 + randi() % 2)
+		if FileAccess.file_exists(p):
+			var b := FileAccess.get_file_as_bytes(p)
+			if b.size() > 0:
+				var img := Image.new()
+				if img.load_png_from_buffer(b) == OK:
+					_stuff_stain_tex = ImageTexture.create_from_image(img)
+	if _stuff_stain_tex == null or not is_instance_valid(get_parent()):
+		return
+	var st := Sprite2D.new()
+	st.texture = _stuff_stain_tex
+	st.global_position = global_position
+	st.rotation = randf() * TAU
+	st.scale = Vector2.ONE * randf_range(0.7, 1.0)
+	st.z_index = -3                       # on the floor, under entities
+	st.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	st.modulate = Color(1, 1, 1, 0.85)
+	get_parent().add_child(st)
+	var tw := st.create_tween()
+	tw.tween_interval(10.0)               # hold 10s…
+	tw.tween_property(st, "modulate:a", 0.0, 5.0)   # …then slowly fade
+	tw.tween_callback(st.queue_free)
 
 func take_damage(amount: int) -> void:
 	if _dying or _invuln_time > 0.0:
