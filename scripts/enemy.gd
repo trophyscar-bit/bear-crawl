@@ -7,6 +7,10 @@ const BearSpitScene := preload("res://scenes/bear_spit.tscn")
 const HealthOrbScene := preload("res://scenes/health_orb.tscn")
 const ExplosionScene := preload("res://scenes/explosion.tscn")
 const BodyChunkScene := preload("res://scenes/body_chunk.tscn")
+const StuffingBurstScene := preload("res://scenes/stuffing_burst.tscn")
+# White "stuffing" splatter textures (blood VFX recoloured) — loaded once, shared.
+static var _stuff_big: Texture2D = null
+static var _stuff_small: Texture2D = null
 const BrownUpperTexture := preload("res://assets/brown_upper.png")
 const BrownLegsTexture := preload("res://assets/brown_legs.png")
 const StuffingTexture := preload("res://assets/stuffing.png")
@@ -719,10 +723,42 @@ func _spawn_damage_number(amount: int, crit: bool) -> void:
 		tw.tween_property(lbl, "scale", Vector2.ONE, 0.18).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 	tw.chain().tween_callback(lbl.queue_free)
 
+func _stuffing_tex(big: bool) -> Texture2D:
+	var path: String = "res://assets/stuffing_burst.png" if big else "res://assets/stuffing_hit.png"
+	if big:
+		if _stuff_big == null:
+			_stuff_big = _stuffing_load(path)
+		return _stuff_big
+	if _stuff_small == null:
+		_stuff_small = _stuffing_load(path)
+	return _stuff_small
+
+func _stuffing_load(path: String) -> Texture2D:
+	if FileAccess.file_exists(path):
+		var b := FileAccess.get_file_as_bytes(path)
+		if b.size() > 0:
+			var img := Image.new()
+			if img.load_png_from_buffer(b) == OK:
+				return ImageTexture.create_from_image(img)
+	return null
+
+func _spawn_stuffing(big: bool) -> void:
+	var tex: Texture2D = _stuffing_tex(big)
+	if tex == null or not is_instance_valid(get_parent()):
+		return
+	var s := StuffingBurstScene.instantiate()
+	s.texture = tex
+	s.global_position = global_position
+	s.scale = Vector2.ONE * (0.72 if big else 0.42)
+	s.rotation = randf() * TAU
+	get_parent().add_child(s)
+
 func take_damage(amount: int, crit: bool = false) -> void:
 	if _dying:
 		return
 	_spawn_damage_number(amount, crit)
+	if randf() < 0.33:
+		_spawn_stuffing(false)   # small stuffing puff on some hits
 	if DevState.oneshot_kills:
 		health = 0
 		_begin_death()
@@ -819,6 +855,7 @@ func _kill_collision() -> void:
 
 func _begin_death() -> void:
 	_dying = true
+	_spawn_stuffing(true)   # big stuffing burst on death
 	# ARPG: award XP/gold and maybe drop loot (no-op in the legacy main game).
 	if ArpgState.active:
 		ArpgState.notify_kill(global_position)

@@ -485,15 +485,21 @@ func _spawn_exit() -> void:
 	glow.energy = 1.4
 	glow.texture_scale = 1.6
 	area.add_child(glow)
-	# Stone stairwell descending into the dark — detailed cobblestone sprite.
-	var stairs := Sprite2D.new()
-	var st_tex: Texture2D = _load_tex_mip("res://assets/stairs_down_v2.png")
-	stairs.texture = st_tex if st_tex != null else StairsTex
-	stairs.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
-	stairs.scale = Vector2(0.7, 0.7)
-	stairs.z_index = -2          # sits on the floor, under the player
-	area.add_child(stairs)
-	# Gentle "breathing" pulse on the glow instead of spinning the stairs.
+	# Animated dimensional PORTAL to the next (normal) level.
+	var portal := Sprite2D.new()
+	var pt: Texture2D = _load_tex_mip("res://assets/portal_exit.png")
+	if pt != null:
+		portal.texture = pt
+		portal.hframes = 3
+		portal.vframes = 2          # 6-frame swirl (32px frames)
+	portal.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	portal.scale = Vector2(2.6, 2.6)
+	portal.z_index = 2              # a portal stands on the floor, not a hole in it
+	area.add_child(portal)
+	# Cycle the 6 swirl frames.
+	var ptw := portal.create_tween().set_loops()
+	ptw.tween_method(func(f: float) -> void: portal.frame = int(f) % 6, 0.0, 6.0, 0.66)
+	# Gentle breathing pulse on the glow.
 	var stw := glow.create_tween().set_loops()
 	stw.tween_property(glow, "energy", 1.9, 1.4).set_trans(Tween.TRANS_SINE)
 	stw.tween_property(glow, "energy", 1.2, 1.4).set_trans(Tween.TRANS_SINE)
