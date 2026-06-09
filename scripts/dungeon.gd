@@ -1506,7 +1506,7 @@ func _toggle_stats() -> void:
 	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 	pframe.add_child(portrait)
 	var pname := Label.new()
-	pname.text = "BEAR"
+	pname.text = "RUPERT"
 	pname.add_theme_font_size_override("font_size", 24)
 	pname.add_theme_color_override("font_color", Color(0.92, 0.86, 0.6))
 	pname.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
