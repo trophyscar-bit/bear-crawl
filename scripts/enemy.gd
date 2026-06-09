@@ -758,8 +758,8 @@ func _spawn_stuffing(big: bool) -> void:
 # Leave a lingering stuffing STAIN on the floor (or the wall, if killed next to
 # one) — fades after a while so they don't pile up and cost FPS.
 func _spawn_kill_stain() -> void:
-	if randf() > 0.6:
-		return
+	if randf() > 0.6 and not is_boss:
+		return   # bosses ALWAYS leave a stain
 	var parent := get_parent()
 	if not is_instance_valid(parent):
 		return
@@ -785,7 +785,7 @@ func _spawn_kill_stain() -> void:
 	s.texture = _stain_tex[randi() % _stain_tex.size()]
 	s.global_position = pos
 	s.rotation = rot
-	s.scale = Vector2.ONE * randf_range(0.7, 1.05)
+	s.scale = Vector2.ONE * randf_range(0.7, 1.05) * (2.0 if is_boss else 1.0)   # boss stain 2x
 	s.z_index = zi
 	s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	s.modulate = Color(1, 1, 1, 0.85)
@@ -899,6 +899,14 @@ func _begin_death() -> void:
 	_dying = true
 	_spawn_stuffing(true)    # big stuffing burst on death
 	_spawn_kill_stain()      # + a lingering floor/wall stain
+	if is_boss:
+		# The guardian goes out with a bang.
+		var bex := ExplosionScene.instantiate()
+		bex.global_position = global_position
+		(bex as Node).set("end_scale", 6.5)
+		(bex as Node).set("duration", 0.9)
+		get_parent().add_child(bex)
+		Juice.shake(0.75)
 	# ARPG: award XP/gold and maybe drop loot (no-op in the legacy main game).
 	if ArpgState.active:
 		ArpgState.notify_kill(global_position)
