@@ -11,6 +11,7 @@ const StuffingBurstScene := preload("res://scenes/stuffing_burst.tscn")
 # White "stuffing" splatter textures (blood VFX recoloured) — loaded once, shared.
 static var _stuff_big: Texture2D = null
 static var _stuff_small: Texture2D = null
+static var _stain_tex: Array = []   # persistent floor/wall stuffing decals
 const BrownUpperTexture := preload("res://assets/brown_upper.png")
 const BrownLegsTexture := preload("res://assets/brown_legs.png")
 const StuffingTexture := preload("res://assets/stuffing.png")
@@ -753,6 +754,46 @@ func _spawn_stuffing(big: bool) -> void:
 	s.rotation = randf() * TAU
 	get_parent().add_child(s)
 
+# Leave a lingering stuffing STAIN on the floor (or the wall, if killed next to
+# one) — fades after a while so they don't pile up and cost FPS.
+func _spawn_kill_stain() -> void:
+	if randf() > 0.6:
+		return
+	var parent := get_parent()
+	if not is_instance_valid(parent):
+		return
+	if _stain_tex.is_empty():
+		for p in ["res://assets/stuffing_stain1.png", "res://assets/stuffing_stain2.png"]:
+			var t: Texture2D = _stuffing_load(p)
+			if t != null:
+				_stain_tex.append(t)
+	if _stain_tex.is_empty():
+		return
+	var pos: Vector2 = global_position
+	var zi: int = -3                      # on the floor, under everything
+	var rot: float = randf() * TAU
+	if parent.has_method("floor_at_world") and "tile" in parent:
+		var t: float = parent.tile
+		for dir in [Vector2(t, 0), Vector2(-t, 0), Vector2(0, t), Vector2(0, -t)]:
+			if not parent.floor_at_world(global_position + dir):   # a wall is there
+				pos = global_position + dir * 0.42
+				zi = 1                    # splat up onto the wall
+				rot = dir.angle() + PI * 0.5
+				break
+	var s := Sprite2D.new()
+	s.texture = _stain_tex[randi() % _stain_tex.size()]
+	s.global_position = pos
+	s.rotation = rot
+	s.scale = Vector2.ONE * randf_range(0.7, 1.05)
+	s.z_index = zi
+	s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	s.modulate = Color(1, 1, 1, 0.85)
+	parent.add_child(s)
+	var tw := s.create_tween()
+	tw.tween_interval(12.0)
+	tw.tween_property(s, "modulate:a", 0.0, 3.5)
+	tw.tween_callback(s.queue_free)
+
 func take_damage(amount: int, crit: bool = false) -> void:
 	if _dying:
 		return
@@ -855,7 +896,8 @@ func _kill_collision() -> void:
 
 func _begin_death() -> void:
 	_dying = true
-	_spawn_stuffing(true)   # big stuffing burst on death
+	_spawn_stuffing(true)    # big stuffing burst on death
+	_spawn_kill_stain()      # + a lingering floor/wall stain
 	# ARPG: award XP/gold and maybe drop loot (no-op in the legacy main game).
 	if ArpgState.active:
 		ArpgState.notify_kill(global_position)

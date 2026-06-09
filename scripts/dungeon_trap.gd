@@ -7,6 +7,8 @@ extends Area2D
 const SHEET_PATH := "res://assets/trap_spike.png"
 const FRAMES := 14
 const DANGER_P := 0.78   # phase at/after which the spikes are up and hurt
+const StuffingBurstScene := preload("res://scenes/stuffing_burst.tscn")
+static var _spike_stuff_tex: Texture2D = null   # gif-1 stuffing for spike hits
 
 @export var cycle: float = 2.8
 @export var damage: int = 1
@@ -71,9 +73,23 @@ func _process(delta: float) -> void:
 		for b in get_overlapping_bodies():
 			if b.is_in_group("player") and b.has_method("take_damage"):
 				b.take_damage(damage)
+				_spike_stuffing((b as Node2D).global_position)
 				_dmg_cd = 0.7
 				Juice.shake(0.16)
 				break
+
+func _spike_stuffing(pos: Vector2) -> void:
+	if _spike_stuff_tex == null:
+		_spike_stuff_tex = _load_tex("res://assets/stuffing_spike.png")
+	if _spike_stuff_tex == null or not is_instance_valid(get_parent()):
+		return
+	var s := StuffingBurstScene.instantiate()
+	s.texture = _spike_stuff_tex
+	s.global_position = pos
+	s.scale = Vector2.ONE * 1.8
+	s.rotation = randf() * TAU
+	s.z_index = 5
+	get_parent().add_child(s)
 
 func _load_tex(path: String) -> Texture2D:
 	if ResourceLoader.exists(path):

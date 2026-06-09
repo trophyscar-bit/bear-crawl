@@ -397,7 +397,7 @@ func generate_shop(_count: int = 5) -> Array:
 		{"id": "speed",     "name": "Roller Skates",        "desc": "+8% Move Speed",     "color": Color(0.5, 0.8, 1.0)},
 		{"id": "weapon",    "name": "Mystery Box",          "desc": "New random weapon type — Rare+ (keeps half your level)", "color": Color(0.85, 0.85, 0.9)},
 	]
-	if not back_shot:
+	if not back_shot and level >= 5:   # gated — it's a build-defining power spike, not a lvl-2 freebie
 		pool.append({"id": "back_shot", "name": "Back Shot", "desc": "Also fire out the back", "color": Color(0.7, 0.5, 1.0)})
 	pool.shuffle()
 	for i in mini(4, pool.size()):
@@ -462,7 +462,7 @@ func level_up_options() -> Array:
 		{"id": "crit",     "name": "Spicy Pepperoni",     "desc": "+7% Crit Chance", "color": Color(1.0, 0.4, 0.7)},
 		{"id": "speed",    "name": "Roller Skates",       "desc": "+8% Move Speed",   "color": Color(0.5, 0.8, 1.0)},
 	]
-	if not back_shot:
+	if not back_shot and level >= 5:   # gated — it's a build-defining power spike, not a lvl-2 freebie
 		pool.append({"id": "back_shot", "name": "Back Shot", "desc": "Also fire backward", "color": Color(0.7, 0.5, 1.0)})
 	pool.shuffle()
 	# The weapon level-up is always offered (when not maxed) as one of the 3 cards.

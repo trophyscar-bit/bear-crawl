@@ -567,7 +567,7 @@ func add_pizza_bombs(n: int) -> void:
 
 func _spawn_hit_stuffing() -> void:
 	if _stuff_burst_tex == null:
-		var path := "res://assets/stuffing_burst.png"
+		var path := "res://assets/stuffing_hit.png"   # gif 3 — the player's hit puff
 		if FileAccess.file_exists(path):
 			var b := FileAccess.get_file_as_bytes(path)
 			if b.size() > 0:
