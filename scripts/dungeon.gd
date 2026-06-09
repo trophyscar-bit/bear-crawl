@@ -2407,18 +2407,22 @@ func _show_level_up() -> void:
 	row.add_theme_constant_override("separation", 28)
 	row.position = Vector2(356, 410)
 	layer.add_child(row)
+	var pf := FontFile.new()
+	pf.load_dynamic_font("res://assets/luckiest_guy.ttf")
 	for opt in opts:
 		var card := Button.new()
 		card.custom_minimum_size = Vector2(240, 180)
 		card.focus_mode = Control.FOCUS_NONE
 		var col: Color = opt.get("color", Color(1, 0.9, 0.5))
+		# Parchment card (design 2) with an accent (rarity) border.
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.10, 0.10, 0.14, 0.96)
-		sb.set_border_width_all(3); sb.border_color = col
+		sb.bg_color = Color(0.925, 0.87, 0.73)
+		sb.set_border_width_all(4); sb.border_color = col.darkened(0.12)
 		sb.set_corner_radius_all(12)
+		sb.shadow_color = Color(0, 0, 0, 0.4); sb.shadow_size = 7; sb.shadow_offset = Vector2(2, 5)
 		card.add_theme_stylebox_override("normal", sb)
 		var hov := sb.duplicate() as StyleBoxFlat
-		hov.bg_color = Color(0.16, 0.16, 0.21, 0.98)
+		hov.bg_color = Color(0.965, 0.915, 0.79)
 		card.add_theme_stylebox_override("hover", hov)
 		card.add_theme_stylebox_override("pressed", hov)
 		var vb := VBoxContainer.new()
@@ -2430,14 +2434,15 @@ func _show_level_up() -> void:
 		var nm := Label.new()
 		nm.text = String(opt.get("name", "?"))
 		nm.add_theme_font_size_override("font_size", 22)
-		nm.add_theme_color_override("font_color", col)
+		nm.add_theme_color_override("font_color", Color(0.29, 0.19, 0.086))
+		nm.add_theme_font_override("font", pf)
 		nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		vb.add_child(nm)
 		var ds := Label.new()
 		ds.text = String(opt.get("desc", ""))
 		ds.add_theme_font_size_override("font_size", 17)
-		ds.add_theme_color_override("font_color", Color(0.85, 0.87, 0.92))
+		ds.add_theme_color_override("font_color", Color(0.46, 0.34, 0.21))
 		ds.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		ds.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		vb.add_child(ds)
@@ -2446,7 +2451,7 @@ func _show_level_up() -> void:
 			var pl := Label.new()
 			pl.text = prev
 			pl.add_theme_font_size_override("font_size", 15)
-			pl.add_theme_color_override("font_color", Color(0.62, 0.68, 0.78))
+			pl.add_theme_color_override("font_color", Color(0.56, 0.43, 0.28))
 			pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			vb.add_child(pl)
 		# Hover → light up the affected stat in the panel with its new value.

@@ -18,13 +18,14 @@ const ACCENT: Dictionary = {
 	"greedy_paws":   Color(1.00, 0.85, 0.40),
 }
 
-const BG_TOP   := Color(0.07, 0.08, 0.12)
-const BG_BOT   := Color(0.02, 0.025, 0.04)
-const CARD_BG  := Color(0.135, 0.145, 0.195)
-const GOLD     := Color(1.0, 0.84, 0.45)
-const COTTON   := Color(0.85, 0.92, 1.0)
-const TXT      := Color(0.93, 0.94, 0.97)
-const MUTE     := Color(0.66, 0.69, 0.78)
+# ── PARCHMENT theme (design 2) ───────────────────────────────────────────────
+const BG_TOP   := Color(0.185, 0.135, 0.088)
+const BG_BOT   := Color(0.085, 0.058, 0.038)
+const CARD_BG  := Color(0.925, 0.87, 0.73)   # cream paper card
+const GOLD     := Color(1.0, 0.88, 0.59)     # cream title / accents
+const COTTON   := Color(0.62, 0.78, 1.0)     # cotton stays blue-tinted
+const TXT      := Color(0.29, 0.19, 0.086)   # dark-brown ink
+const MUTE     := Color(0.46, 0.34, 0.21)    # muted brown
 
 var _fluff_label: Label
 var _stat_rows: Dictionary = {}    # id -> { pips: Label, level: Label, button: Button }
@@ -120,7 +121,7 @@ func _build() -> void:
 	add_child(center)
 
 	var window := PanelContainer.new()
-	var wsb := _flat(Color(0.085, 0.095, 0.135), GOLD.darkened(0.25), 2, 16, 30)
+	var wsb := _flat(Color(0.14, 0.10, 0.066), GOLD.darkened(0.45), 3, 16, 30)
 	wsb.shadow_color = Color(0, 0, 0, 0.5); wsb.shadow_size = 18
 	window.add_theme_stylebox_override("panel", wsb)
 	center.add_child(window)
@@ -138,7 +139,7 @@ func _build() -> void:
 
 	# Currency pill.
 	var pill := PanelContainer.new()
-	pill.add_theme_stylebox_override("panel", _flat(Color(0.05, 0.055, 0.08), GOLD.darkened(0.4), 1, 10, 12))
+	pill.add_theme_stylebox_override("panel", _flat(Color(0.10, 0.07, 0.045), GOLD.darkened(0.5), 1, 10, 12))
 	pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_fluff_label = _label("", 22, GOLD)
 	pill.add_child(_fluff_label)
@@ -228,7 +229,7 @@ func _make_stat_card(id: String) -> Control:
 	desc_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	inner.add_child(desc_l)
 
-	var pips := _label("", 20, accent)
+	var pips := _label("", 20, accent.darkened(0.3))   # readable on cream paper
 	pips.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	inner.add_child(pips)
 

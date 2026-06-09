@@ -17,23 +17,50 @@ func _load_frame_tex() -> void:
 	if img.load_png_from_buffer(f.get_buffer(f.get_length())) == OK:
 		FrameTex = ImageTexture.create_from_image(img)
 
-const BG_TOP   := Color(0.07, 0.08, 0.12)
-const BG_BOT   := Color(0.02, 0.025, 0.04)
-const PANEL_BG := Color(0.105, 0.115, 0.155)
-const CARD_BG  := Color(0.135, 0.145, 0.195)
-const GOLD     := Color(1.0, 0.84, 0.45)
-const TXT      := Color(0.93, 0.94, 0.97)
-const MUTE     := Color(0.66, 0.69, 0.78)
+# ── PARCHMENT theme (design 2) ───────────────────────────────────────────────
+const BG_TOP   := Color(0.185, 0.135, 0.088)
+const BG_BOT   := Color(0.085, 0.058, 0.038)
+const PAPER    := Color(0.925, 0.87, 0.73)    # card fill (cream paper)
+const INK      := Color(0.29, 0.19, 0.086)    # dark-brown name text
+const BR_BORDER:= Color(0.47, 0.32, 0.17)     # card border
+const BR_BTN   := Color(0.59, 0.39, 0.20)     # wood button
+const BR_BTN_B := Color(0.37, 0.24, 0.12)     # button border
+const MUTE     := Color(0.46, 0.34, 0.21)     # muted brown desc
+const CREAM    := Color(1.0, 0.88, 0.59)      # title / cost text
+const GOLD     := CREAM
+const TXT      := INK
 
 var _offers: Array = []
 var _gold_label: Label
 var _buy_buttons: Array[Button] = []
+var _hf: FontFile
 
 func _ready() -> void:
+	_hf = FontFile.new()
+	_hf.load_dynamic_font("res://assets/luckiest_guy.ttf")
 	_load_frame_tex()
 	ArpgState.stats_changed.connect(_refresh)
 	_offers = ArpgState.generate_shop(5)
 	_build_ui()
+
+func _font(l: Label, sz: int) -> void:
+	if _hf != null:
+		l.add_theme_font_override("font", _hf)
+	l.add_theme_font_size_override("font_size", sz)
+
+# Brown wood button (cream label). big_cost = larger, bolder cost text.
+func _brown_button(b: Button, sz: int) -> void:
+	b.add_theme_stylebox_override("normal",   _flat(BR_BTN, BR_BTN_B, 2, 9, 8))
+	b.add_theme_stylebox_override("hover",    _flat(BR_BTN.lightened(0.10), BR_BTN_B, 2, 9, 8))
+	b.add_theme_stylebox_override("pressed",  _flat(BR_BTN.darkened(0.12), BR_BTN_B, 2, 9, 8))
+	b.add_theme_stylebox_override("focus",    _flat(BR_BTN.lightened(0.10), CREAM.darkened(0.2), 2, 9, 8))
+	b.add_theme_stylebox_override("disabled", _flat(Color(0.5, 0.42, 0.3), BR_BTN_B, 1, 9, 8))
+	b.add_theme_color_override("font_color", CREAM)
+	b.add_theme_color_override("font_hover_color", Color(1, 0.97, 0.85))
+	b.add_theme_color_override("font_disabled_color", Color(0.78, 0.72, 0.6))
+	if _hf != null:
+		b.add_theme_font_override("font", _hf)
+	b.add_theme_font_size_override("font_size", sz)
 
 # ── style helpers ────────────────────────────────────────────────────────────
 func _flat(bg: Color, border_col: Color, border: int, radius: int, pad: int) -> StyleBoxFlat:
@@ -116,7 +143,7 @@ func _build_ui() -> void:
 	add_child(center)
 
 	var window := PanelContainer.new()
-	var wsb := _flat(Color(0.085, 0.095, 0.135), GOLD.darkened(0.25), 2, 16, 30)
+	var wsb := _flat(Color(0.14, 0.10, 0.066), CREAM.darkened(0.45), 3, 16, 30)
 	wsb.shadow_color = Color(0, 0, 0, 0.5); wsb.shadow_size = 18
 	window.add_theme_stylebox_override("panel", wsb)
 	center.add_child(window)
@@ -125,18 +152,20 @@ func _build_ui() -> void:
 	root.add_theme_constant_override("separation", 14)
 	window.add_child(root)
 
-	var title := _label("THE  MERCHANT", 40, GOLD, true)
+	var title := _label("THE  MERCHANT", 42, CREAM, true)
+	_font(title, 42)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(title)
-	var sub := _label("Floor %d cleared — invest your spoils" % maxi(1, ArpgState.depth - 1), 17, MUTE)
+	var sub := _label("Floor %d cleared — invest your spoils" % maxi(1, ArpgState.depth - 1), 17, Color(0.78, 0.66, 0.46))
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(sub)
 
 	var pill := PanelContainer.new()
-	var psb := _flat(Color(0.05, 0.055, 0.08), GOLD.darkened(0.4), 1, 10, 12)
+	var psb := _flat(Color(0.10, 0.07, 0.045), CREAM.darkened(0.5), 1, 10, 12)
 	pill.add_theme_stylebox_override("panel", psb)
 	pill.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_gold_label = _label("", 22, GOLD)
+	_gold_label = _label("", 24, CREAM)
+	_font(_gold_label, 24)
 	pill.add_child(_gold_label)
 	root.add_child(pill)
 
@@ -149,10 +178,9 @@ func _build_ui() -> void:
 
 	var descend := Button.new()
 	descend.text = "▼   DESCEND   ▼"
-	descend.custom_minimum_size = Vector2(380, 54)
-	descend.add_theme_font_size_override("font_size", 24)
+	descend.custom_minimum_size = Vector2(380, 56)
 	descend.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
-	_accent_button(descend, GOLD)
+	_brown_button(descend, 24)
 	descend.pressed.connect(_descend)
 	root.add_child(descend)
 	descend.grab_focus()
@@ -163,64 +191,51 @@ func _make_card(index: int) -> Control:
 	var accent: Color = offer.get("color", Color(0.6, 0.5, 0.9))
 	var is_weapon: bool = bool(offer.get("weapon_upgrade", false))
 
-	# Clean dark slate card with a rarity/accent-colored top header bar.
+	# Parchment paper card with a dark-brown border + drop shadow.
 	var card := PanelContainer.new()
-	card.custom_minimum_size = Vector2(210, 286)
-	card.pivot_offset = Vector2(105, 143)
-	var csb := _flat(CARD_BG, accent.darkened(0.15), 2, 12, 0)
+	card.custom_minimum_size = Vector2(214, 290)
+	card.pivot_offset = Vector2(107, 145)
+	var csb := _flat(PAPER, BR_BORDER, 4, 12, 0)
+	csb.shadow_color = Color(0, 0, 0, 0.45); csb.shadow_size = 8; csb.shadow_offset = Vector2(2, 5)
 	card.add_theme_stylebox_override("panel", csb)
 	card.mouse_filter = Control.MOUSE_FILTER_PASS
 	card.mouse_entered.connect(func() -> void: _hover(card, true))
 	card.mouse_exited.connect(func() -> void: _hover(card, false))
 
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", 0)
-	vb.alignment = BoxContainer.ALIGNMENT_BEGIN
-	card.add_child(vb)
-
-	# Colored header strip — replaces the glow orb. Category + accent identity.
-	var head := PanelContainer.new()
-	var hsb := StyleBoxFlat.new()
-	hsb.bg_color = accent.darkened(0.32) if is_weapon else accent.darkened(0.45)
-	hsb.set_corner_radius_all(0)
-	hsb.corner_radius_top_left = 11; hsb.corner_radius_top_right = 11
-	hsb.content_margin_top = 8; hsb.content_margin_bottom = 8
-	hsb.content_margin_left = 10; hsb.content_margin_right = 10
-	head.add_theme_stylebox_override("panel", hsb)
-	var badge := _label("⚔  WEAPON" if is_weapon else "◆  RUN UPGRADE", 13, Color(1, 0.97, 0.9))
-	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	head.add_child(badge)
-	vb.add_child(head)
-
-	# Body with inner padding.
 	var body := MarginContainer.new()
 	body.add_theme_constant_override("margin_left", 14)
 	body.add_theme_constant_override("margin_right", 14)
-	body.add_theme_constant_override("margin_top", 14)
-	body.add_theme_constant_override("margin_bottom", 14)
-	vb.add_child(body)
+	body.add_theme_constant_override("margin_top", 13)
+	body.add_theme_constant_override("margin_bottom", 13)
+	card.add_child(body)
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 8)
+	col.add_theme_constant_override("separation", 7)
 	body.add_child(col)
 
-	var name_l := _label(String(offer.get("name", "?")), 20, accent.lightened(0.45))
+	# Small bold category label in the accent (rarity) colour.
+	var badge := _label("⚔  WEAPON" if is_weapon else "◆  RUN UPGRADE", 13, accent.darkened(0.35))
+	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(badge)
+
+	var name_l := _label(String(offer.get("name", "?")), 20, INK)
+	_font(name_l, 20)
 	name_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	name_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(name_l)
 
 	var rule := Panel.new()
 	rule.custom_minimum_size = Vector2(0, 2)
-	var rsb := StyleBoxFlat.new(); rsb.bg_color = accent.darkened(0.1); rsb.bg_color.a = 0.5
+	var rsb := StyleBoxFlat.new(); rsb.bg_color = BR_BORDER; rsb.bg_color.a = 0.55
 	rule.add_theme_stylebox_override("panel", rsb)
 	col.add_child(rule)
 
-	var desc_l := _label(String(offer.get("desc", "")), 14, TXT)
+	var desc_l := _label(String(offer.get("desc", "")), 15, MUTE)
 	desc_l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	desc_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(desc_l)
 
 	if is_weapon:
-		var wname := _label("› %s" % String(offer.get("weapon_name", "")), 12, MUTE)
+		var wname := _label("› %s" % String(offer.get("weapon_name", "")), 12, MUTE.darkened(0.1))
 		wname.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		col.add_child(wname)
 
@@ -230,9 +245,8 @@ func _make_card(index: int) -> Control:
 
 	var buy := Button.new()
 	buy.text = "⛁ %d" % int(offer.get("cost", 0))
-	buy.add_theme_font_size_override("font_size", 19)
-	buy.custom_minimum_size = Vector2(0, 44)
-	_accent_button(buy, accent)
+	buy.custom_minimum_size = Vector2(0, 46)
+	_brown_button(buy, 23)   # bigger + bolder cost (Luckiest Guy)
 	buy.pressed.connect(_buy.bind(index))
 	col.add_child(buy)
 	_buy_buttons.append(buy)
