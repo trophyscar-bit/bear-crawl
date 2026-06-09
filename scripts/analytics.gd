@@ -48,6 +48,7 @@ func end_run(outcome: String) -> void:
 	run["alive_avg"] = (_alive_sum / float(maxi(1, _alive_n)))
 	_fold_into_life(run)
 	_save()
+	Telemetry.send(life)   # anonymous upload (no-op unless an endpoint is configured)
 	print("[Stats] run ended (%s) — floor %d, %.0fs, %d gold, %d levels, %d dmg taken" % [
 		outcome, int(run["floor_reached"]), float(run["duration"]),
 		int(run["gold_gained"]), int(run["levels"]), int(run["damage_taken"])])

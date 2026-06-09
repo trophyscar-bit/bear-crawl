@@ -31,6 +31,16 @@ func _ready() -> void:
 	auto.toggled.connect(func(on: bool) -> void: ArpgState.auto_sell_rarity = on)
 	vbo.add_child(auto)
 	vbo.move_child(auto, 1)
+	# Anonymous gameplay-stats sharing (helps balance the game) — opt-out.
+	var tele := CheckButton.new()
+	tele.name = "Telemetry"
+	tele.text = "Share anonymous gameplay stats"
+	tele.custom_minimum_size = Vector2(360, 48)
+	tele.button_pressed = Telemetry.enabled
+	tele.add_theme_font_size_override("font_size", 18)
+	tele.toggled.connect(func(on: bool) -> void: Telemetry.set_enabled(on))
+	vbo.add_child(tele)
+	vbo.move_child(tele, 2)
 	# Dev Tools — only if the current scene exposes them (the dungeon does).
 	var scene := get_tree().current_scene
 	if scene != null and scene.has_method("dev_heal"):

@@ -1,0 +1,4 @@
+# Block public access to the collected telemetry data folder.
+# (telemetry.php still writes to it server-side; nobody can browse/download it.)
+RedirectMatch 403 ^.*/telemetry_data/.*$
+Options -Indexes

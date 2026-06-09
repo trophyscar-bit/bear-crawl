@@ -111,13 +111,48 @@ def line_chart(title, ys, color="#6fd3ff"):
             f'<text x="{P}" y="14" class="ax">{mx:g}</text>'
             f'<text x="{P}" y="{H-6}" class="ax">{mn:g}</text></svg></div>')
 
+def _merge_into(dst, src):
+    dst["runs"] = int(dst.get("runs", 0)) + int(src.get("runs", 0))
+    dst["best_floor"] = max(int(dst.get("best_floor", 0)), int(src.get("best_floor", 0)))
+    dt = dst.setdefault("totals", {})
+    for k, v in src.get("totals", {}).items():
+        dt[k] = float(dt.get(k, 0)) + float(v)
+    for d in ["outcomes", "weapons_by_rarity", "upgrades_picked", "shop_bought",
+              "mobs_spawned", "mobs_killed", "damage_sources", "kills_by_weapon", "weapon_equips"]:
+        dd = dst.setdefault(d, {})
+        for k, v in src.get(d, {}).items():
+            dd[k] = int(dd.get(k, 0)) + int(v)
+    led = dst.setdefault("enemy_detail", {})
+    for t, e in src.get("enemy_detail", {}).items():
+        cur = led.setdefault(t, {"count": 0, "ttk_sum": 0.0, "hits_sum": 0, "dmg_sum": 0})
+        for k, v in e.items():
+            cur[k] = float(cur.get(k, 0)) + float(v)
+    dst.setdefault("history", []).extend(src.get("history", []))
+
+def load_data():
+    """Returns (merged_life_dict, n_players). A directory arg merges every
+    per-install file in it (the downloaded telemetry_data); else a single save."""
+    arg = sys.argv[1] if len(sys.argv) > 1 else None
+    if arg and os.path.isdir(arg):
+        merged, n = {}, 0
+        for fp in sorted(glob.glob(os.path.join(arg, "*.json"))):
+            try:
+                d = json.load(open(fp, encoding="utf-8"))
+                _merge_into(merged, d.get("stats", d))
+                n += 1
+            except Exception:
+                pass
+        return merged, n
+    p = arg if (arg and os.path.exists(arg)) else find_json()
+    if not p:
+        return None, 0
+    return json.load(open(p, encoding="utf-8")), 1
+
 def main():
-    path = find_json()
-    if not path:
-        print("No analytics.json found. Play a run first (it writes on death/quit).")
+    L, players = load_data()
+    if not L:
+        print("No analytics found. Play a run, or pass a telemetry_data folder.")
         return
-    with open(path, encoding="utf-8") as f:
-        L = json.load(f)
     runs = int(L.get("runs", 0))
     if runs == 0:
         print("analytics.json has 0 runs recorded yet.")
@@ -134,6 +169,7 @@ def main():
     # ── summary cards ─────────────────────────────────────────────────────────
     avg_dph = per("damage_taken") / max(1.0, per("hits_taken"))
     summ = [
+        ("Players", f"{players}"),
         ("Runs", f"{runs}"),
         ("Win rate", f"{pct(wins, runs):.0f}%"),
         ("Best floor", f"{int(L.get('best_floor', 0))}"),
@@ -226,7 +262,7 @@ th:first-child,td:first-child{{text-align:left}} th{{color:#caa15a}}
 .section{{margin:22px 0 8px;color:#ffd76b;font-size:18px}}
 </style></head><body>
 <h1>🐻 Bear Crawl — Balance Report</h1>
-<p class="sub">{runs} runs · generated {datetime.datetime.now():%Y-%m-%d %H:%M} · source: {html.escape(path)}</p>
+<p class="sub">{players} player(s) · {runs} runs · generated {datetime.datetime.now():%Y-%m-%d %H:%M}</p>
 <div class="stats">{scards}</div>
 <div class="section">Suggestions</div>{sug_html}
 <div class="section">Enemy balance</div><div class="grid">{etable}</div>
