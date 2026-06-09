@@ -148,15 +148,10 @@ def load_data():
         return None, 0
     return json.load(open(p, encoding="utf-8")), 1
 
-def main():
-    L, players = load_data()
-    if not L:
-        print("No analytics found. Play a run, or pass a telemetry_data folder.")
-        return
+def render_html(L, players, extra_top=""):
     runs = int(L.get("runs", 0))
     if runs == 0:
-        print("analytics.json has 0 runs recorded yet.")
-        return
+        return None
     T = L.get("totals", {})
     per = lambda k: float(T.get(k, 0.0)) / runs
     oc = L.get("outcomes", {})
@@ -256,6 +251,7 @@ h1{{color:#ffd76b;margin:0 0 2px}} .sub{{color:#9c876a;margin:0 0 18px}}
 table{{width:100%;border-collapse:collapse;font-size:13px}} th,td{{padding:5px 8px;text-align:right;border-bottom:1px solid #3a2a14}}
 th:first-child,td:first-child{{text-align:left}} th{{color:#caa15a}}
 .muted{{color:#7d6a4f}} svg.line{{width:100%;height:auto;background:#0e0b07;border-radius:8px}} .ax{{fill:#7d6a4f;font-size:11px}}
+a{{color:#6fd3ff;text-decoration:none}} a:hover{{text-decoration:underline}}
 .mico{{vertical-align:middle;margin-right:6px;image-rendering:pixelated}}
 .sug{{padding:10px 14px;border-radius:8px;margin:6px 0;font-size:14px}}
 .sug.warn{{background:#3a2410;border:1px solid #8a5a1e}} .sug.info{{background:#10243a;border:1px solid #2a5a8a}}
@@ -264,15 +260,74 @@ th:first-child,td:first-child{{text-align:left}} th{{color:#caa15a}}
 <h1>🐻 Bear Crawl — Balance Report</h1>
 <p class="sub">{players} player(s) · {runs} runs · generated {datetime.datetime.now():%Y-%m-%d %H:%M}</p>
 <div class="stats">{scards}</div>
+{extra_top}
 <div class="section">Suggestions</div>{sug_html}
 <div class="section">Enemy balance</div><div class="grid">{etable}</div>
 <div class="section">Charts</div><div class="grid">{charts}</div>
 </body></html>"""
+    return page
 
+def player_label(u):
+    st = u.get("stats", {})
+    runs = int(st.get("runs", 0))
+    oc = st.get("outcomes", {})
+    wins = int(oc.get("victory", 0))
+    when = datetime.datetime.fromtimestamp(int(u.get("ts", 0))).strftime("%Y-%m-%d") if u.get("ts") else "?"
+    return runs, wins, when
+
+def build_roster(users):
+    rows = ""
+    for u in sorted(users, key=lambda x: int(x.get("stats", {}).get("runs", 0)), reverse=True):
+        st = u.get("stats", {})
+        runs, wins, when = player_label(u)
+        sid = str(u.get("id", "?"))[:10]
+        rows += (f'<tr><td><a href="players/{html.escape(str(u.get("id","?")))}.html">{html.escape(sid)}</a></td>'
+                 f'<td>{html.escape(str(u.get("version","")))}</td><td>{runs}</td>'
+                 f'<td>{int(st.get("best_floor",0))}</td><td>{pct(wins,max(1,runs)):.0f}%</td>'
+                 f'<td>{when}</td></tr>')
+    return ('<div class="section">Players</div><div class="grid"><div class="card wide"><h3>Per-player roster (click an id)</h3>'
+            '<table><tr><th>install id</th><th>ver</th><th>runs</th><th>best floor</th>'
+            f'<th>win%</th><th>last seen</th></tr>{rows}</table></div></div>')
+
+def main():
+    arg = sys.argv[1] if len(sys.argv) > 1 else None
     out = os.path.join(REPO, "analytics_report.html")
+
+    if arg and os.path.isdir(arg):
+        users = []
+        for fp in sorted(glob.glob(os.path.join(arg, "*.json"))):
+            try:
+                users.append(json.load(open(fp, encoding="utf-8")))
+            except Exception:
+                pass
+        if not users:
+            print("No per-player files in", arg)
+            return
+        merged = {}
+        for u in users:
+            _merge_into(merged, u.get("stats", u))
+        # one report per player → players/<id>.html
+        pdir = os.path.join(REPO, "players")
+        os.makedirs(pdir, exist_ok=True)
+        for u in users:
+            ph = render_html(u.get("stats", {}), 1)
+            if ph:
+                with open(os.path.join(pdir, str(u.get("id", "unknown")) + ".html"), "w", encoding="utf-8") as f:
+                    f.write(ph)
+        page = render_html(merged, len(users), build_roster(users))
+    else:
+        L, n = load_data()
+        if not L:
+            print("No analytics found. Play a run, or pass a telemetry_data folder.")
+            return
+        page = render_html(L, n)
+
+    if not page:
+        print("0 runs recorded yet.")
+        return
     with open(out, "w", encoding="utf-8") as f:
         f.write(page)
-    print("Wrote", out)
+    print("Wrote", out, "(+ per-player reports in players/)" if (arg and os.path.isdir(arg)) else "")
     try:
         webbrowser.open("file:///" + out.replace("\\", "/"))
     except Exception:
