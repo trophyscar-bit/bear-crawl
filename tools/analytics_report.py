@@ -10,10 +10,56 @@ suggestions. Run it any time after playing some runs:
 
 Writes analytics_report.html next to this repo and opens it in your browser.
 """
-import os, sys, json, glob, webbrowser, html, datetime
+import os, sys, json, glob, webbrowser, html, datetime, base64, io
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
+ASSETS = os.path.join(REPO, "assets")
+try:
+    from PIL import Image
+    _PIL = True
+except Exception:
+    _PIL = False
+
+# mob scene-name -> (sprite file, frame_count for spritesheets)
+ICON_MAP = {
+    "skeleton": ("skeleton_walk.png", 13), "sword_skeleton": ("sword_skel_idle.png", 8),
+    "enemy": ("dark_bear.png", 1), "seal": ("seal.png", 1), "duckling": ("duck.png", 1),
+    "plush_brawler": ("plush_brawler_front.png", 1), "hound": ("hound.png", 1),
+    "frost_cub": ("frost_cub.png", 1), "cream_bear": ("cream_bear.png", 1),
+    "beanie_bear": ("beanie_bear.png", 1), "teddy_bear": ("teddy_bear.png", 1),
+    "army_bear": ("army_bear.png", 1), "gun_bear": ("gun_bear.png", 1),
+    "growler": ("growler.png", 1), "shrinkwrap_bear": ("shrinkwrap_bear.png", 1),
+}
+_icache = {}
+
+def mob_icon(t, px=40):
+    """A small base64 PNG icon for a mob type (empty string if unavailable)."""
+    if not _PIL:
+        return ""
+    if t in _icache:
+        return _icache[t]
+    fname, frames = ICON_MAP.get(t, (str(t) + ".png", 1))
+    fp = os.path.join(ASSETS, fname)
+    tag = ""
+    if os.path.exists(fp):
+        try:
+            im = Image.open(fp).convert("RGBA")
+            if frames > 1:
+                im = im.crop((0, 0, im.width // frames, im.height))
+            bb = im.getbbox()
+            if bb:
+                im = im.crop(bb)
+            im.thumbnail((px, px), Image.LANCZOS)
+            canvas = Image.new("RGBA", (px, px), (0, 0, 0, 0))
+            canvas.alpha_composite(im, ((px - im.width) // 2, (px - im.height) // 2))
+            buf = io.BytesIO(); canvas.save(buf, "PNG")
+            uri = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+            tag = '<img class="mico" src="%s">' % uri
+        except Exception:
+            tag = ""
+    _icache[t] = tag
+    return tag
 
 def find_json():
     if len(sys.argv) > 1 and os.path.exists(sys.argv[1]):
@@ -31,7 +77,7 @@ def find_json():
 def pct(part, whole):
     return (100.0 * part / whole) if whole else 0.0
 
-def bar_chart(title, d, total=None, unit="", fmt="{:.0f}", color="#caa15a", top=12):
+def bar_chart(title, d, total=None, unit="", fmt="{:.0f}", color="#caa15a", top=12, icons=False):
     items = sorted(d.items(), key=lambda kv: kv[1], reverse=True)[:top]
     if not items:
         return f'<div class="card"><h3>{html.escape(title)}</h3><p class="muted">(no data)</p></div>'
@@ -41,7 +87,8 @@ def bar_chart(title, d, total=None, unit="", fmt="{:.0f}", color="#caa15a", top=
     for k, v in items:
         w = 100.0 * v / mx
         share = f" · {pct(v, tot):.0f}%" if tot else ""
-        rows += (f'<div class="row"><div class="lbl">{html.escape(str(k))}</div>'
+        ic = mob_icon(str(k), 22) if icons else ""
+        rows += (f'<div class="row"><div class="lbl">{ic}{html.escape(str(k))}</div>'
                  f'<div class="track"><div class="fill" style="width:{w:.1f}%;background:{color}"></div>'
                  f'<span class="val">{fmt.format(v)}{unit}{share}</span></div></div>')
     return f'<div class="card"><h3>{html.escape(title)}</h3>{rows}</div>'
@@ -108,7 +155,7 @@ def main():
         ttk = e.get("ttk_sum", 0) / c
         hits = e.get("hits_sum", 0) / c
         hp = e.get("dmg_sum", 0) / c
-        erows += (f"<tr><td>{html.escape(t)}</td><td>{sp}</td><td>{int(e['count'])}</td>"
+        erows += (f"<tr><td>{mob_icon(t, 30)}{html.escape(t)}</td><td>{sp}</td><td>{int(e['count'])}</td>"
                   f"<td>{ttk:.2f}s</td><td>{hits:.1f}</td><td>{hp:.1f}</td></tr>")
     etable = (f'<div class="card wide"><h3>Enemy profile</h3><table>'
               f'<tr><th>type</th><th>spawned</th><th>killed</th><th>avg TTK</th>'
@@ -132,9 +179,9 @@ def main():
             continue
         ttk = e.get("ttk_sum", 0) / c
         if ttk < 0.4:
-            sug.append(("info", f"<b>{html.escape(t)}</b> dies almost instantly (avg TTK {ttk:.2f}s) — trivial / maybe too weak."))
+            sug.append(("info", f"{mob_icon(t, 26)}<b>{html.escape(t)}</b> dies almost instantly (avg TTK {ttk:.2f}s) — trivial / maybe too weak."))
         elif ttk > 6:
-            sug.append(("warn", f"<b>{html.escape(t)}</b> is a sponge (avg TTK {ttk:.1f}s) — may feel too tanky."))
+            sug.append(("warn", f"{mob_icon(t, 26)}<b>{html.escape(t)}</b> is a sponge (avg TTK {ttk:.1f}s) — may feel too tanky."))
     if pct(wins, runs) >= 70 and runs >= 5:
         sug.append(("warn", f"Win rate {pct(wins, runs):.0f}% — game may be too easy."))
     if deaths and pct(deaths, runs) >= 90 and runs >= 5:
@@ -149,7 +196,7 @@ def main():
         bar_chart("Kills by weapon", L.get("kills_by_weapon", {}), color="#d65c93"),
         bar_chart("Level-up picks", picks, color="#69c98c"),
         bar_chart("Shop buys", L.get("shop_bought", {}), color="#caa15a"),
-        bar_chart("Most-spawned mobs", spawned, color="#7d88c0"),
+        bar_chart("Most-spawned mobs", spawned, color="#7d88c0", icons=True),
         bar_chart("Damage sources", L.get("damage_sources", {}), color="#e0584e"),
         bar_chart("Weapon drops by rarity", L.get("weapons_by_rarity", {}), color="#9b8cff"),
         line_chart("Floor reached per run", [int(h.get("floor", 1)) for h in hist]),
@@ -173,6 +220,7 @@ h1{{color:#ffd76b;margin:0 0 2px}} .sub{{color:#9c876a;margin:0 0 18px}}
 table{{width:100%;border-collapse:collapse;font-size:13px}} th,td{{padding:5px 8px;text-align:right;border-bottom:1px solid #3a2a14}}
 th:first-child,td:first-child{{text-align:left}} th{{color:#caa15a}}
 .muted{{color:#7d6a4f}} svg.line{{width:100%;height:auto;background:#0e0b07;border-radius:8px}} .ax{{fill:#7d6a4f;font-size:11px}}
+.mico{{vertical-align:middle;margin-right:6px;image-rendering:pixelated}}
 .sug{{padding:10px 14px;border-radius:8px;margin:6px 0;font-size:14px}}
 .sug.warn{{background:#3a2410;border:1px solid #8a5a1e}} .sug.info{{background:#10243a;border:1px solid #2a5a8a}}
 .section{{margin:22px 0 8px;color:#ffd76b;font-size:18px}}
