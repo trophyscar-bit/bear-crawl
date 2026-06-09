@@ -39,6 +39,7 @@ func _ready() -> void:
 	speed = 86.0
 	touch_damage = 1
 	throws_stars = false
+	_stuffing_mult = 0.7   # skeletons get a 30%-smaller stuffing swoosh
 	super._ready()
 	# Pin the shared HP bar just over his head (rig scale is large).
 	if is_instance_valid(_hpbar_bg):

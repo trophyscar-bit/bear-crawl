@@ -15,6 +15,7 @@ func _ready() -> void:
 	speed = 96.0
 	touch_damage = 1
 	throws_stars = false
+	_stuffing_mult = 0.7   # skeletons get a 30%-smaller stuffing swoosh
 	super._ready()
 	# The shared HP-bar offset assumes a ~0.4 bear rig scale; the skeleton's 2.8
 	# scale flung it way overhead. Pin the bar just above his head.

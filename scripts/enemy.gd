@@ -12,6 +12,7 @@ const StuffingBurstScene := preload("res://scenes/stuffing_burst.tscn")
 static var _stuff_big: Texture2D = null
 static var _stuff_small: Texture2D = null
 static var _stain_tex: Array = []   # persistent floor/wall stuffing decals
+var _stuffing_mult: float = 1.0     # per-enemy size of the stuffing puff (skeletons shrink it)
 const BrownUpperTexture := preload("res://assets/brown_upper.png")
 const BrownLegsTexture := preload("res://assets/brown_legs.png")
 const StuffingTexture := preload("res://assets/stuffing.png")
@@ -750,7 +751,7 @@ func _spawn_stuffing(big: bool) -> void:
 	var s := StuffingBurstScene.instantiate()
 	s.texture = tex
 	s.global_position = global_position
-	s.scale = Vector2.ONE * (2.1 if big else 1.25)   # ~3x bigger, juicier
+	s.scale = Vector2.ONE * (2.1 if big else 1.25) * _stuffing_mult
 	s.rotation = randf() * TAU
 	get_parent().add_child(s)
 
@@ -790,8 +791,8 @@ func _spawn_kill_stain() -> void:
 	s.modulate = Color(1, 1, 1, 0.85)
 	parent.add_child(s)
 	var tw := s.create_tween()
-	tw.tween_interval(12.0)
-	tw.tween_property(s, "modulate:a", 0.0, 3.5)
+	tw.tween_interval(10.0)                              # hold for 10s…
+	tw.tween_property(s, "modulate:a", 0.0, 5.0)        # …then slowly fade
 	tw.tween_callback(s.queue_free)
 
 func take_damage(amount: int, crit: bool = false) -> void:

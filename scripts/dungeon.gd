@@ -773,11 +773,11 @@ func _cell_in_room(r: Rect2i) -> Vector2:
 # with only the first couple, then a new type joins the spawn pool every ~38s.
 # Deeper floors start further along the schedule (more variety up front).
 const WAVE_UNLOCKS: Array = [
-	SkeletonScene,        # 0  pure melee, no ranged — the gentle intro
-	SealScene,            # 1  Long Bear — blocker, doesn't even attack
-	DucklingScene,        # 2  weak fast swarmer
-	CreamBearScene,       # 3  basic melee critter
-	SwordSkeletonScene,   # 4  sword bruiser — winds up a melee swing
+	SkeletonScene,        # 0  pure melee halberd — the gentle intro
+	SwordSkeletonScene,   # 1  sword bruiser — winds up a melee swing (both skels open the floor)
+	SealScene,            # 2  Long Bear — blocker, doesn't even attack
+	DucklingScene,        # 3  weak fast swarmer
+	CreamBearScene,       # 4  basic melee critter
 	BeanieBearScene,      # 5  lobs slow beanies
 	HoundScene,           # 5  pounce
 	GunBearScene,         # 6  burst rifle
@@ -889,7 +889,7 @@ func _flash_event(text: String, color: Color) -> void:
 	lbl.create_tween().tween_property(lbl, "scale", Vector2.ONE, 0.5).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 
 func _wave_unlocked_count() -> int:
-	var base: int = 1 + (ArpgState.depth - 1) * 2   # floor 1: skeletons only for the 1st minute
+	var base: int = 2 + (ArpgState.depth - 1) * 2   # floor 1: BOTH skeleton types open the floor
 	return clampi(base + int(_wave_t / WAVE_UNLOCK_INTERVAL), 1, WAVE_UNLOCKS.size())
 
 func _wave_pick_scene() -> PackedScene:
