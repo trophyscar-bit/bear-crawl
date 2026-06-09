@@ -23,6 +23,7 @@ const TeddyBearScene := preload("res://scenes/teddy_bear.tscn")
 const CreamBearScene := preload("res://scenes/cream_bear.tscn")
 const DarkAllyScene := preload("res://scenes/dark_bear_ally.tscn")
 const SkeletonScene := preload("res://scenes/skeleton.tscn")
+const SwordSkeletonScene := preload("res://scenes/sword_skeleton.tscn")
 const CRITTER_POOL: Array = [DucklingScene, HoundScene, FrostCubScene, SealScene, BeanieBearScene, TeddyBearScene, CreamBearScene, SkeletonScene]
 const LightTex := preload("res://assets/light_radial.png")
 const FloorTex := preload("res://assets/dungeon_floor.png")
@@ -770,7 +771,8 @@ const WAVE_UNLOCKS: Array = [
 	SealScene,            # 1  Long Bear — blocker, doesn't even attack
 	DucklingScene,        # 2  weak fast swarmer
 	CreamBearScene,       # 3  basic melee critter
-	BeanieBearScene,      # 4  lobs slow beanies
+	SwordSkeletonScene,   # 4  sword bruiser — winds up a melee swing
+	BeanieBearScene,      # 5  lobs slow beanies
 	HoundScene,           # 5  pounce
 	GunBearScene,         # 6  burst rifle
 	GrowlerScene,         # 7  archer
@@ -782,7 +784,7 @@ const WAVE_UNLOCKS: Array = [
 ]
 const WAVE_UNLOCK_INTERVAL: float = 60.0   # a new enemy type joins every minute
 const WAVE_NAMES: Dictionary = {
-	"skeleton": "SKELETON", "seal": "LONG BEAR", "duckling": "DUCKLING",
+	"skeleton": "SKELETON", "sword_skeleton": "SWORD SKELETON", "seal": "LONG BEAR", "duckling": "DUCKLING",
 	"cream_bear": "CREAM BEAR", "beanie_bear": "BEANIE BEAR", "hound": "HOUND",
 	"gun_bear": "GUN BEAR", "growler": "ARCHER", "frost_cub": "FROST CUB",
 	"teddy_bear": "TEDDY BEAR", "shrinkwrap_bear": "SHRINKWRAP", "enemy": "KK BEAR",
