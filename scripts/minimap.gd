@@ -83,8 +83,9 @@ func _draw() -> void:
 		var f = _d.world_to_fine(it)
 		if _d._explored.has("%d,%d" % [int(f.x), int(f.y)]):
 			draw_circle(Vector2(f.x * cw, f.y * ch), maxf(cw * 0.7, 1.5), Color(0.6, 0.85, 1.0))
-	# boss — always visible
-	if is_instance_valid(_d._boss) and not _d._boss_dead:
+	# boss — hidden until you've ENCOUNTERED him once; after that he's always
+	# tracked (so the teleporting boss can't be lost).
+	if is_instance_valid(_d._boss) and not _d._boss_dead and _d._boss_alerted:
 		var bp = _d.world_to_fine(_d._boss.global_position)
 		var bc := Vector2(bp.x * cw, bp.y * ch)
 		var pulse: float = 0.55 + 0.45 * sin(Time.get_ticks_msec() * 0.006)

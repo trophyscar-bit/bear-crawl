@@ -5,18 +5,18 @@ extends "res://scripts/enemy.gd"
 # frame, with a white slash VFX baked into the sheet), and plays a full collapse
 # animation on death. Built from 48x64 strip sheets (idle/walk/attack/die).
 
-const FW: int = 48
+const FW: int = 96   # real frame width is 96 (not 48 — that sliced every frame in half!)
 const FH: int = 64
 const ANIMS: Dictionary = {
-	"idle":    {"path": "res://assets/sword_skel_idle.png",    "frames": 16, "fps": 10.0, "loop": true},
-	"walk":    {"path": "res://assets/sword_skel_walk.png",    "frames": 20, "fps": 15.0, "loop": true},
-	"attack":  {"path": "res://assets/sword_skel_attack1.png", "frames": 20, "fps": 24.0, "loop": false},
-	"attack2": {"path": "res://assets/sword_skel_attack2.png", "frames": 18, "fps": 24.0, "loop": false},
-	"hurt":    {"path": "res://assets/sword_skel_hurt.png",    "frames": 10, "fps": 20.0, "loop": false},
-	"die":     {"path": "res://assets/sword_skel_die.png",     "frames": 26, "fps": 22.0, "loop": false},
+	"idle":    {"path": "res://assets/sword_skel_idle.png",    "frames": 8,  "fps": 8.0,  "loop": true},
+	"walk":    {"path": "res://assets/sword_skel_walk.png",    "frames": 10, "fps": 13.0, "loop": true},
+	"attack":  {"path": "res://assets/sword_skel_attack1.png", "frames": 10, "fps": 16.0, "loop": false},
+	"attack2": {"path": "res://assets/sword_skel_attack2.png", "frames": 9,  "fps": 16.0, "loop": false},
+	"hurt":    {"path": "res://assets/sword_skel_hurt.png",    "frames": 5,  "fps": 14.0, "loop": false},
+	"die":     {"path": "res://assets/sword_skel_die.png",     "frames": 13, "fps": 16.0, "loop": false},
 }
 const ATTACK_RANGE: float = 82.0
-const ATTACK_HIT_FRAME: int = 10     # the swing connect
+const ATTACK_HIT_FRAME: int = 5      # the swing connect (mid-slash)
 const ATTACK_DAMAGE: int = 2
 const ATTACK_COOLDOWN: float = 1.25
 const HURT_DURATION: float = 0.28    # brief flinch overlay (doesn't freeze the chase)
