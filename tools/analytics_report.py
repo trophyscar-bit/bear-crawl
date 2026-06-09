@@ -281,7 +281,7 @@ def build_roster(users):
         st = u.get("stats", {})
         runs, wins, when = player_label(u)
         sid = str(u.get("id", "?"))[:10]
-        rows += (f'<tr><td><a href="players/{html.escape(str(u.get("id","?")))}.html">{html.escape(sid)}</a></td>'
+        rows += (f'<tr><td><a href="players/{html.escape(str(u.get("id","?")))}.html" target="_blank">{html.escape(sid)}</a></td>'
                  f'<td>{html.escape(str(u.get("version","")))}</td><td>{runs}</td>'
                  f'<td>{int(st.get("best_floor",0))}</td><td>{pct(wins,max(1,runs)):.0f}%</td>'
                  f'<td>{when}</td></tr>')
