@@ -803,6 +803,7 @@ var _wave_started: bool = false
 var _wave_last_unlocked: int = 0
 var _event_t: float = 70.0   # countdown to the next themed RUSH event
 var _mm_redraw_t: float = 0.0   # minimap redraw throttle
+var _minimap_on: bool = true    # M toggles it (FPS A/B test)
 var _hud_time_tl: Label = null
 var _hud_time_br: Label = null
 
@@ -813,7 +814,7 @@ func _spawn_enemies() -> void:
 	_wave_t = 0.0
 	_wave_spawn_t = 3.0
 	_wave_last_unlocked = _wave_unlocked_count()
-	var seed_n: int = int(_wave_alive_cap() * 0.45)
+	var seed_n: int = int(_wave_alive_cap() * 0.35)   # opening is sparse
 	for i in seed_n:
 		_spawn_one(_wave_pick_scene(), _random_floor_world(tile * 5.0, true))
 
@@ -902,7 +903,11 @@ func _wave_pick_scene() -> PackedScene:
 # feel strong, but you never stop fighting.
 func _wave_power() -> float:
 	# Much gentler scaling — the +100% version was a death wall (dead in <2 min).
-	return clampf(ArpgState.challenge_ratio(), 1.0, 1.8)
+	# AND ramp it in over the first ~100s so the opening minute is always calm
+	# (just a few of the easiest type) even when you're over-levelled for the floor.
+	var p: float = clampf(ArpgState.challenge_ratio(), 1.0, 1.8)
+	var ramp: float = clampf(_wave_t / 100.0, 0.0, 1.0)
+	return 1.0 + (p - 1.0) * ramp
 
 func _wave_alive_cap() -> int:
 	var base: int = 18
@@ -1255,7 +1260,7 @@ func _process(delta: float) -> void:
 	# Minimap redraw is heavy (every cell + 8-neighbour fog lookups). Throttle it to
 	# ~8 Hz instead of every frame — a big CPU win, imperceptible visually.
 	_mm_redraw_t -= delta
-	if _minimap and _mm_redraw_t <= 0.0:
+	if _minimap and _minimap_on and _mm_redraw_t <= 0.0:
 		_mm_redraw_t = 0.12
 		_minimap.queue_redraw()
 	if _hp_update.is_valid() and is_instance_valid(_player):
@@ -1684,6 +1689,13 @@ func _input(event: InputEvent) -> void:
 		elif event.keycode == KEY_TAB:
 			get_viewport().set_input_as_handled()
 			_toggle_stats()
+		elif event.keycode == KEY_M:
+			# Toggle the minimap (FPS A/B test) — hides it AND stops its redraw.
+			get_viewport().set_input_as_handled()
+			_minimap_on = not _minimap_on
+			if _minimap:
+				_minimap.visible = _minimap_on
+			_on_toast("Minimap %s" % ("ON" if _minimap_on else "OFF"), Color(0.7, 0.85, 1.0))
 
 # ── lighting modes (live-switchable) ────────────────────────────────────────
 func _build_gi_layer() -> void:

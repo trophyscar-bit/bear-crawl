@@ -93,7 +93,8 @@ func _physics_process(delta: float) -> void:
 	if _attacking:
 		velocity = Vector2.ZERO
 		move_and_slide()
-		_face_player()
+		# NOTE: facing is LOCKED for the whole swing (set at start) — flipping it
+		# every frame made the slash whip back and forth = broken-looking.
 		if not _atk_hit_done and _frame >= ATTACK_HIT_FRAME:
 			_atk_hit_done = true
 			_do_sword_hit()
@@ -119,6 +120,7 @@ func _physics_process(delta: float) -> void:
 	var aggro_ok: bool = (not ArpgState.active) or _aggro_t > 0.0
 	if _atk_cd <= 0.0 and d <= ATTACK_RANGE and aggro_ok:
 		_attacking = true
+		_face_player()   # face the player ONCE, then hold it through the swing
 		_set_anim("attack" if randf() < 0.5 else "attack2")
 		return
 	if velocity.length() > 8.0:

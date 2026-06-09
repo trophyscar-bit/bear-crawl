@@ -757,7 +757,7 @@ func take_damage(amount: int, crit: bool = false) -> void:
 	if _dying:
 		return
 	_spawn_damage_number(amount, crit)
-	if randf() < 0.33:
+	if randf() < 0.22:
 		_spawn_stuffing(false)   # small stuffing puff on some hits
 	if DevState.oneshot_kills:
 		health = 0
