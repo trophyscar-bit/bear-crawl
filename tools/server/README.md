@@ -1,8 +1,8 @@
-# Bear Crawl telemetry — setup
+# Bear Crawl telemetry — setup  (PRIVATE TESTING)
 
-Collects **anonymous gameplay stats** from players (no personal data, no hardware
-fingerprint — just a random per-install UUID + the same metrics the in-game STATS
-screen shows). Players can opt out in the pause menu.
+For private testers only. Collects gameplay stats keyed by a random per-install
+UUID (no hardware fingerprint) — the same metrics the in-game STATS screen shows.
+This build always reports while an endpoint is configured (no in-game toggle).
 
 ## 1. Host the receiver (Bluehost)
 1. Pick a shared key (any random string).
@@ -18,14 +18,9 @@ In `scripts/telemetry.gd`:
 const ENDPOINT  := "https://mattkelly.com/bc/telemetry.php"
 const SHARED_KEY := "<same key as the PHP>"
 ```
-Rebuild + release. Players' lifetime stats now upload on each run end (rate-limited).
+Rebuild + release. Testers' lifetime stats now upload on each run end (rate-limited).
 
-## 3. Disclose it
-Add a line to your itch/GitHub page and ideally a first-run notice, e.g.:
-> "Bear Crawl sends anonymous gameplay statistics to help balance the game.
->  Turn it off any time in Settings."
-
-## 4. View everyone's data
+## 3. View everyone's data
 Download the `telemetry_data` folder (cPanel File Manager / FTP), then:
 ```
 python tools/analytics_report.py path/to/telemetry_data
