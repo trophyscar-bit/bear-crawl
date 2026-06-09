@@ -125,6 +125,7 @@ func _show_category(cat: String) -> void:
 		"WEAPONS": _grid_stations(_weapon_stations(), PEN, STEP)
 		"PROPS": _grid_stations(_prop_stations(), PEN, STEP)
 		"PORTALS": _grid_stations(_portal_stations(), PEN, STEP)
+		"MENUS": _build_menus_grid()
 		"LEVELS": _build_levels_grid()
 	# Park the player (enemy target) and centre the drag-camera on this category.
 	var view: Vector2 = ORIGIN + Vector2(STEP.x * 1.3, STEP.y * 0.6)
@@ -177,6 +178,31 @@ func _weapon_stations() -> Array:
 
 func _prop_stations() -> Array:
 	return [{"title": "BACKROOMS PROPS", "kind": "props", "open": true}]
+
+func _build_menus_grid() -> void:
+	# Gallery of candidate MERCHANT + LEVEL-UP designs (full mockups) to pick from.
+	var designs: Array = [
+		{"title": "1  —  GILDED  (royal gold)", "tex": "res://assets/menu_designs/design_1.png"},
+		{"title": "2  —  PARCHMENT  (storybook paper)", "tex": "res://assets/menu_designs/design_2.png"},
+		{"title": "3  —  DARK GLASS  (modern, slick)", "tex": "res://assets/menu_designs/design_3.png"},
+		{"title": "4  —  NEON ARCADE  (synthwave)", "tex": "res://assets/menu_designs/design_4.png"},
+		{"title": "5  —  STORYBOOK PLUSH  (cozy)", "tex": "res://assets/menu_designs/design_5.png"},
+	]
+	var cols: int = 3
+	var cell: Vector2 = Vector2(1180.0, 980.0)
+	for i in designs.size():
+		var col: int = i % cols
+		var row: int = i / cols
+		var center: Vector2 = ORIGIN + Vector2(float(col) * cell.x, float(row) * cell.y)
+		var tex: Texture2D = _runtime_png(String(designs[i]["tex"]))
+		if tex == null:
+			continue
+		var spr := Sprite2D.new()
+		spr.texture = tex
+		spr.position = center
+		spr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		add_child(spr)
+		_label(String(designs[i]["title"]), center + Vector2(0, -float(tex.get_height()) * 0.5 - 46.0))
 
 func _portal_stations() -> Array:
 	# Two candidate looks for the backrooms boss-portal — walk up and compare.
@@ -1373,7 +1399,7 @@ func _build_hud() -> void:
 	cats.add_theme_constant_override("separation", 6)
 	cats.position = Vector2(16, 10)
 	layer.add_child(cats)
-	for c in ["ENEMIES", "WEAPONS", "FX", "PROPS", "PORTALS", "LEVELS"]:
+	for c in ["ENEMIES", "WEAPONS", "FX", "PROPS", "PORTALS", "MENUS", "LEVELS"]:
 		var cb := Button.new()
 		cb.text = c
 		cb.focus_mode = Control.FOCUS_NONE
