@@ -472,8 +472,26 @@ func level_up_options() -> Array:
 		var w2: Dictionary = (wopts[0] as Dictionary).duplicate(true)
 		w2["weapon_upgrade"] = true
 		out.append(w2)
-		out.append_array(pool.slice(0, 2))
+		# Don't ALSO offer a global card for the SAME stat the weapon step bumps —
+		# "Weapon +14% Fire Rate" next to "Greased Oven +12% Fire Rate" read as a
+		# redundant double-up.
+		var excl: String = _weapon_step_global_id()
+		var filtered: Array = pool.filter(func(c: Dictionary) -> bool: return String(c.get("id", "")) != excl)
+		out.append_array(filtered.slice(0, 2))
 	else:
 		out.append_array(pool.slice(0, 3))
 	out.shuffle()
 	return out
+
+# Which global-upgrade id the equipped weapon's NEXT level step overlaps with
+# ("firerate" / "dmg" / "") — used to de-dupe the level-up card choices.
+func _weapon_step_global_id() -> String:
+	var lvl: int = int(weapon.get("lvl", 1))
+	var path: Array = LEVEL_PATHS.get(String(weapon.get("name", "")), [])
+	if lvl - 1 < path.size():
+		var step: Dictionary = path[lvl - 1]
+		if step.has("cd"):
+			return "firerate"
+		if step.has("dmg"):
+			return "dmg"
+	return ""

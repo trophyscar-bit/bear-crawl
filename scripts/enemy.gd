@@ -785,15 +785,15 @@ func _spawn_kill_stain() -> void:
 		var t: float = parent.tile
 		for dir in [Vector2(t, 0), Vector2(-t, 0), Vector2(0, t), Vector2(0, -t)]:
 			if not parent.floor_at_world(global_position + dir):   # a wall is there
-				pos = global_position + dir * 0.42
-				zi = 1                    # splat up onto the wall
+				pos = global_position + dir * 0.55   # climb onto the wall face
+				zi = 1                                # drawn over the wall base
 				rot = dir.angle() + PI * 0.5
 				break
 	var s := Sprite2D.new()
 	s.texture = _stain_tex[randi() % _stain_tex.size()]
 	s.global_position = pos
 	s.rotation = rot
-	s.scale = Vector2.ONE * randf_range(0.7, 1.05) * (2.0 if is_boss else 1.0)   # boss stain 2x
+	s.scale = Vector2.ONE * randf_range(0.7, 1.05) * (4.0 if is_boss else 1.0)   # boss stain huge
 	s.z_index = zi
 	s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	s.modulate = Color(1, 1, 1, 0.85)
