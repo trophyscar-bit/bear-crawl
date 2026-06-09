@@ -126,6 +126,7 @@ func _show_category(cat: String) -> void:
 		"PROPS": _grid_stations(_prop_stations(), PEN, STEP)
 		"PORTALS": _grid_stations(_portal_stations(), PEN, STEP)
 		"MENUS": _build_menus_grid()
+		"STATS": _build_stats_report()
 		"LEVELS": _build_levels_grid()
 	# Park the player (enemy target) and centre the drag-camera on this category.
 	var view: Vector2 = ORIGIN + Vector2(STEP.x * 1.3, STEP.y * 0.6)
@@ -178,6 +179,46 @@ func _weapon_stations() -> Array:
 
 func _prop_stations() -> Array:
 	return [{"title": "BACKROOMS PROPS", "kind": "props", "open": true}]
+
+func _build_stats_report() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 60
+	add_child(layer)
+	var panel := PanelContainer.new()
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.04, 0.05, 0.08, 0.97)
+	sb.set_border_width_all(2); sb.border_color = Color(0.4, 0.6, 0.9)
+	sb.set_corner_radius_all(10); sb.set_content_margin_all(20)
+	panel.add_theme_stylebox_override("panel", sb)
+	panel.custom_minimum_size = Vector2(720, 760)
+	layer.add_child(panel)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 10)
+	panel.add_child(vb)
+	var title := Label.new()
+	title.text = "RUN ANALYTICS  —  lifetime"
+	title.add_theme_font_size_override("font_size", 24)
+	title.add_theme_color_override("font_color", Color(0.6, 0.85, 1.0))
+	vb.add_child(title)
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(680, 640)
+	vb.add_child(scroll)
+	var txt := Label.new()
+	txt.text = Stats.report()
+	txt.add_theme_font_size_override("font_size", 16)
+	txt.add_theme_color_override("font_color", Color(0.88, 0.92, 0.98))
+	var mono := SystemFont.new()
+	mono.font_names = PackedStringArray(["Consolas", "Cascadia Mono", "Courier New", "monospace"])
+	txt.add_theme_font_override("font", mono)
+	scroll.add_child(txt)
+	var reset := Button.new()
+	reset.text = "Reset lifetime data"
+	reset.focus_mode = Control.FOCUS_NONE
+	reset.pressed.connect(func() -> void:
+		Stats.reset_lifetime()
+		txt.text = Stats.report())
+	vb.add_child(reset)
 
 func _build_menus_grid() -> void:
 	# Gallery of candidate MERCHANT + LEVEL-UP designs (full mockups) to pick from.
@@ -1399,7 +1440,7 @@ func _build_hud() -> void:
 	cats.add_theme_constant_override("separation", 6)
 	cats.position = Vector2(16, 10)
 	layer.add_child(cats)
-	for c in ["ENEMIES", "WEAPONS", "FX", "PROPS", "PORTALS", "MENUS", "LEVELS"]:
+	for c in ["ENEMIES", "WEAPONS", "FX", "PROPS", "PORTALS", "MENUS", "STATS", "LEVELS"]:
 		var cb := Button.new()
 		cb.text = c
 		cb.focus_mode = Control.FOCUS_NONE

@@ -641,6 +641,7 @@ func take_damage(amount: int) -> void:
 		return
 	_invuln_time = INVULN_DURATION
 	health -= amount
+	Stats.player_hit(amount)
 	_spawn_hit_stuffing()   # Rupert puffs stuffing when hit
 	modulate = Color(1, 0.4, 0.4)
 	# AAA game-feel: kick the camera + a sliver of hit-stop so damage lands hard,

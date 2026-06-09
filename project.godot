@@ -27,6 +27,7 @@ DevState="*res://scripts/dev_state.gd"
 MetaSave="*res://scripts/meta_save.gd"
 Juice="*res://scripts/juice.gd"
 ArpgState="*res://scripts/arpg_state.gd"
+Stats="*res://scripts/analytics.gd"
 Updater="*res://scripts/update_checker.gd"
 
 [display]

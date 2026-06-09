@@ -13,6 +13,7 @@ static var _stuff_big: Texture2D = null
 static var _stuff_small: Texture2D = null
 static var _stain_tex: Array = []   # persistent floor/wall stuffing decals
 var _stuffing_mult: float = 1.0     # per-enemy size of the stuffing puff (skeletons shrink it)
+var mob_type: String = "?"          # set by the spawner — for analytics
 var shadow_abs_y: float = -1.0      # if >=0, absolute shadow feet-offset (non-bear rigs)
 var shadow_abs_w: float = 64.0      # absolute shadow width when shadow_abs_y is used
 const BrownUpperTexture := preload("res://assets/brown_upper.png")
@@ -905,6 +906,7 @@ func _kill_collision() -> void:
 
 func _begin_death() -> void:
 	_dying = true
+	Stats.mob_killed(mob_type)
 	_spawn_stuffing(true)    # big stuffing burst on death
 	_spawn_kill_stain()      # + a lingering floor/wall stain
 	if is_boss:
@@ -944,6 +946,7 @@ func _begin_death() -> void:
 	if greed > 0 and randf() < 0.12 * float(greed):
 		fluff_drop += 1
 	MetaSave.add_fluff(fluff_drop)
+	Stats.fluff_gained(fluff_drop)
 	RunState.stats_fluff_earned += fluff_drop
 	# Old special-weapon pickups (bomb/scatter/homing) only exist in the legacy
 	# main game — in the ARPG the loot system handles drops, and these specials

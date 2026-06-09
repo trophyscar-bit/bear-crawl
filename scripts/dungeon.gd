@@ -803,6 +803,7 @@ var _wave_started: bool = false
 var _wave_last_unlocked: int = 0
 var _event_t: float = 70.0   # countdown to the next themed RUSH event
 var _mm_redraw_t: float = 0.0   # minimap redraw throttle
+var _stats_sample_t: float = 0.0   # analytics alive-count sampler
 var _minimap_on: bool = true    # M toggles it (FPS A/B test)
 var _hud_time_tl: Label = null
 var _hud_fps: Label = null
@@ -837,6 +838,11 @@ func _wave_tick(delta: float) -> void:
 	if _wave_spawn_t <= 0.0:
 		_wave_spawn_t = _wave_interval()
 		_wave_spawn_batch()
+	# Analytics: sample how many enemies are alive (~1 Hz).
+	_stats_sample_t -= delta
+	if _stats_sample_t <= 0.0:
+		_stats_sample_t = 1.0
+		Stats.sample_alive(get_tree().get_nodes_in_group("enemies").size())
 	# Themed RUSH events — once the floor has ramped, every ~minute a horde of ONE
 	# enemy type pours in around you (a wall of teddy bombers, a swarm of long
 	# bears, etc.). The fun chaos beat.
@@ -941,6 +947,9 @@ func _wave_spawn_batch() -> void:
 func _spawn_one(scene: PackedScene, pos: Vector2) -> void:
 	var e := scene.instantiate()
 	e.position = pos
+	var t: String = scene.resource_path.get_file().get_basename()
+	e.set("mob_type", t)        # so kills can be attributed by type
+	Stats.mob_spawned(t)
 	add_child(e)
 	_configure_enemy(e)
 
@@ -1380,6 +1389,8 @@ func dev_god_mode() -> void:
 
 # ── death / game over ────────────────────────────────────────────────────────
 func _on_player_died() -> void:
+	Stats.note_floor(ArpgState.depth)
+	Stats.end_run("died")
 	# Let the death explosion + chunks play out, then show the game-over screen.
 	# (Doubled the beat so the death animation lands before YOU DIED appears.)
 	await get_tree().create_timer(3.4, true).timeout
@@ -2367,7 +2378,12 @@ func _show_level_up() -> void:
 	spsb.set_border_width_all(2); spsb.border_color = Color(0.5, 0.55, 0.7, 0.7)
 	spsb.set_corner_radius_all(12); spsb.set_content_margin_all(16)
 	sp.add_theme_stylebox_override("panel", spsb)
-	sp.position = Vector2(46, 392)
+	# Centre the whole [stats | cards] group in the viewport (was hard-coded left).
+	var _vp: Vector2 = get_viewport_rect().size
+	var _group_w: float = 258.0 + 54.0 + 776.0   # stats + gap + 3 cards
+	var _gx: float = (_vp.x - _group_w) * 0.5
+	var _gy: float = _vp.y * 0.5 - 60.0
+	sp.position = Vector2(_gx, _gy)
 	sp.custom_minimum_size = Vector2(258, 0)
 	layer.add_child(sp)
 	var spv := VBoxContainer.new()
@@ -2405,7 +2421,7 @@ func _show_level_up() -> void:
 		base_text[String(sd[0])] = String(sd[2])
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 28)
-	row.position = Vector2(356, 410)
+	row.position = Vector2(_gx + 258.0 + 54.0, _gy + 18.0)
 	layer.add_child(row)
 	var pf := FontFile.new()
 	pf.load_dynamic_font("res://assets/luckiest_guy.ttf")
@@ -2517,6 +2533,7 @@ func _levelup_change(opt: Dictionary) -> Array:
 	return ["", ""]
 
 func _pick_level_up(layer: CanvasLayer, opt: Dictionary) -> void:
+	Stats.upgrade_picked(String(opt.get("id", "?")))
 	ArpgState.apply_upgrade(opt)
 	_refresh_hud()
 	if is_instance_valid(layer):

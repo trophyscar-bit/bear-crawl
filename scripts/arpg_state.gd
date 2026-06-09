@@ -180,6 +180,7 @@ func weapon_next_label() -> String:
 
 func reset_run() -> void:
 	active = true
+	Stats.start_run()
 	depth = 1
 	level = 1
 	xp = 0
@@ -323,24 +324,30 @@ func notify_kill(pos: Vector2) -> void:
 	add_xp(2 + depth)
 	var g: int = randi_range(1, 2 + int(depth / 2))   # less per-kill gold
 	gold += g
+	Stats.gold_gained(g)
 	emit_signal("stats_changed")
 	# Loot drop chance (weapons). Lowered hard so the floor isn't paved with free
 	# coins (you could farm-sell trash drops into a full shop by floor 3).
 	if randf() < 0.16:
-		emit_signal("loot_dropped", pos, roll_weapon())
+		var w: Dictionary = roll_weapon()
+		Stats.weapon_dropped(String(w.get("name", "?")), int(w.get("rarity", 0)))
+		emit_signal("loot_dropped", pos, w)
 
 func add_xp(amount: int) -> void:
 	xp += amount
+	Stats.xp_gained(amount)
 	while xp >= xp_to_next:
 		xp -= xp_to_next
 		level += 1
 		xp_to_next = int(round(float(xp_to_next) * 1.35)) + 2
+		Stats.leveled()
 		emit_signal("leveled_up", level)
 		emit_signal("toast", "LEVEL  %d" % level, Color(1.0, 0.86, 0.3))
 	emit_signal("stats_changed")
 
 func descend() -> void:
 	depth += 1
+	Stats.note_floor(depth)
 	emit_signal("stats_changed")
 
 # Player stat scaling from level + shop (loot supplies the weapon).

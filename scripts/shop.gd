@@ -258,6 +258,7 @@ func _hover(card: Control, on: bool) -> void:
 
 func _buy(index: int) -> void:
 	if ArpgState.buy(_offers[index]):
+		Stats.shop_bought(String(_offers[index].get("id", "?")), int(_offers[index].get("cost", 0)))
 		var b: Button = _buy_buttons[index]
 		# Everything (including the one weapon level-up) sells out per visit.
 		b.text = "✓ SOLD"
