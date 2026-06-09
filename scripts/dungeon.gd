@@ -805,6 +805,8 @@ var _event_t: float = 70.0   # countdown to the next themed RUSH event
 var _mm_redraw_t: float = 0.0   # minimap redraw throttle
 var _minimap_on: bool = true    # M toggles it (FPS A/B test)
 var _hud_time_tl: Label = null
+var _hud_fps: Label = null
+var _fps_t: float = 0.0
 var _hud_time_br: Label = null
 
 func _spawn_enemies() -> void:
@@ -1217,6 +1219,11 @@ func _spawn_items() -> void:
 
 # ── runtime ────────────────────────────────────────────────────────────────
 func _process(delta: float) -> void:
+	# FPS counter (updates even while paused).
+	_fps_t -= delta
+	if _hud_fps != null and _fps_t <= 0.0:
+		_fps_t = 0.25
+		_hud_fps.text = "%d fps" % int(round(Engine.get_frames_per_second()))
 	if get_tree().paused:
 		return   # stats screen / popups paused us — don't run gameplay or waves
 	_wave_tick(delta)
@@ -2558,6 +2565,11 @@ func _build_hud() -> void:
 	_hud_time_tl.text = "0:00"
 	if has_ui_font:
 		_hud_time_tl.add_theme_font_override("font", ui_font)
+	# FPS counter — top-left corner, whole numbers.
+	_hud_fps = _mk_label(layer, Vector2(16, 14), 16, Color(0.55, 1.0, 0.65))
+	_hud_fps.text = "-- fps"
+	if has_ui_font:
+		_hud_fps.add_theme_font_override("font", ui_font)
 	# (Auto-sell toggle moved to the pause menu — press Esc → Options.)
 	# Boss health bar (top-centre, hidden until the guardian is engaged).
 	_hud_boss_root = Control.new()
