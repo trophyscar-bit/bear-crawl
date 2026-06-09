@@ -612,8 +612,8 @@ func _spawn_braziers() -> void:
 		lamp.energy = 0.9           # candelabras a touch brighter/farther
 		lamp.texture_scale = 3.5    # double the light range (was 1.75)
 		lamp.shadow_enabled = true
-		lamp.shadow_filter = 2          # PCF13 — softer, higher-quality shadows
-		lamp.shadow_filter_smooth = 4.0
+		lamp.shadow_filter = 1          # PCF5 — cheaper than PCF13 (perf)
+		lamp.shadow_filter_smooth = 3.0
 		lamp.position = pos - Vector2(0, tile * 0.35)   # light at the flames
 		add_child(lamp)
 		# (No indirect "fill" — it bled through walls. The candelabra light is now
@@ -796,6 +796,7 @@ var _wave_spawn_t: float = 0.0
 var _wave_started: bool = false
 var _wave_last_unlocked: int = 0
 var _event_t: float = 70.0   # countdown to the next themed RUSH event
+var _mm_redraw_t: float = 0.0   # minimap redraw throttle
 var _hud_time_tl: Label = null
 var _hud_time_br: Label = null
 
@@ -842,7 +843,7 @@ func _trigger_rush_event() -> void:
 	var scene: PackedScene = _wave_pick_scene()
 	var fn: String = scene.resource_path.get_file().get_basename()
 	var nm: String = WAVE_NAMES.get(fn, fn.to_upper())
-	var n: int = clampi(int(round(10.0 * _wave_power())), 9, 22)
+	var n: int = clampi(int(round(7.0 * _wave_power())), 6, 13)
 	_flash_event("%s  RUSH!" % nm, Color(1.0, 0.55, 0.2))
 	Juice.shake(0.35)
 	# Spawn them in a ring around the player so they converge from all sides.
@@ -894,22 +895,22 @@ func _wave_pick_scene() -> PackedScene:
 # size so a nuke build gets BURIED in mobs instead of walking empty rooms — you
 # feel strong, but you never stop fighting.
 func _wave_power() -> float:
-	return clampf(ArpgState.challenge_ratio(), 1.0, 2.8)
+	# Much gentler scaling — the +100% version was a death wall (dead in <2 min).
+	return clampf(ArpgState.challenge_ratio(), 1.0, 1.8)
 
 func _wave_alive_cap() -> int:
-	var base: int = 24
+	var base: int = 18
 	match GameSettings.difficulty:
-		0: base = 16   # EASY
-		2: base = 34   # HARD
-	var grown: int = base + int(_wave_t / 14.0) * 4
-	return mini(int(round(float(grown) * _wave_power())), 85)   # capped for perf (was 130)
+		0: base = 12   # EASY
+		2: base = 26   # HARD
+	var grown: int = base + int(_wave_t / 22.0) * 3
+	return mini(int(round(float(grown) * _wave_power())), 55)
 
 func _wave_interval() -> float:
-	# Batches come faster the longer you're in + the stronger you are.
-	return maxf(0.40, (2.6 - _wave_t / 60.0) / _wave_power())
+	return maxf(0.85, (3.4 - _wave_t / 90.0) / _wave_power())
 
 func _wave_batch_size() -> int:
-	return maxi(3, int(round((3.0 + _wave_t / 32.0) * _wave_power())))
+	return maxi(2, int(round((2.0 + _wave_t / 55.0) * _wave_power())))
 
 func _wave_spawn_batch() -> void:
 	var alive: int = get_tree().get_nodes_in_group("enemies").size()
@@ -1245,7 +1246,11 @@ func _process(delta: float) -> void:
 		# 10% chance: a BACKROOMS portal tears open where the guardian fell.
 		if theme != "backrooms" and randf() < 0.10:
 			_spawn_backrooms_portal((_boss as Node2D).global_position)
-	if _minimap:
+	# Minimap redraw is heavy (every cell + 8-neighbour fog lookups). Throttle it to
+	# ~8 Hz instead of every frame — a big CPU win, imperceptible visually.
+	_mm_redraw_t -= delta
+	if _minimap and _mm_redraw_t <= 0.0:
+		_mm_redraw_t = 0.12
 		_minimap.queue_redraw()
 	if _hp_update.is_valid() and is_instance_valid(_player):
 		_hp_update.call(float(_player.get("health")), float(_player.get("max_health")))
@@ -1551,12 +1556,14 @@ func _toggle_stats() -> void:
 	if is_instance_valid(_stats_layer):
 		_stats_layer.queue_free()
 		_stats_layer = null
-		Engine.time_scale = 1.0          # back to full speed
+		get_tree().paused = false
+		process_mode = Node.PROCESS_MODE_INHERIT
 		return
-	# Don't pause — run the world in slow-mo (25%) so you can read your stats while
-	# the action keeps creeping along. Input/UI run in real time (time_scale only
-	# affects in-game delta), so Tab/Esc still close instantly.
-	Engine.time_scale = 0.25
+	# Full PAUSE while the character screen is open. The dungeon goes ALWAYS so its
+	# _input still fires (Tab/Esc close it); gameplay is gated by the paused guard
+	# in _process.
+	get_tree().paused = true
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_stats_layer = CanvasLayer.new()
 	_stats_layer.layer = 94
 	_stats_layer.process_mode = Node.PROCESS_MODE_ALWAYS

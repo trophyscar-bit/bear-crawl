@@ -8,15 +8,18 @@ extends "res://scripts/enemy.gd"
 const FW: int = 48
 const FH: int = 64
 const ANIMS: Dictionary = {
-	"idle":   {"path": "res://assets/sword_skel_idle.png",    "frames": 16, "fps": 10.0, "loop": true},
-	"walk":   {"path": "res://assets/sword_skel_walk.png",    "frames": 20, "fps": 15.0, "loop": true},
-	"attack": {"path": "res://assets/sword_skel_attack1.png", "frames": 20, "fps": 24.0, "loop": false},
-	"die":    {"path": "res://assets/sword_skel_die.png",     "frames": 26, "fps": 22.0, "loop": false},
+	"idle":    {"path": "res://assets/sword_skel_idle.png",    "frames": 16, "fps": 10.0, "loop": true},
+	"walk":    {"path": "res://assets/sword_skel_walk.png",    "frames": 20, "fps": 15.0, "loop": true},
+	"attack":  {"path": "res://assets/sword_skel_attack1.png", "frames": 20, "fps": 24.0, "loop": false},
+	"attack2": {"path": "res://assets/sword_skel_attack2.png", "frames": 18, "fps": 24.0, "loop": false},
+	"hurt":    {"path": "res://assets/sword_skel_hurt.png",    "frames": 10, "fps": 20.0, "loop": false},
+	"die":     {"path": "res://assets/sword_skel_die.png",     "frames": 26, "fps": 22.0, "loop": false},
 }
 const ATTACK_RANGE: float = 82.0
-const ATTACK_HIT_FRAME: int = 11     # the swing connect
+const ATTACK_HIT_FRAME: int = 10     # the swing connect
 const ATTACK_DAMAGE: int = 2
 const ATTACK_COOLDOWN: float = 1.25
+const HURT_DURATION: float = 0.28    # brief flinch overlay (doesn't freeze the chase)
 
 @onready var _rig: Node2D = $Rig
 @onready var _spr: Sprite2D = $Rig/Body
@@ -29,6 +32,7 @@ var _atk_cd: float = 0.0
 var _atk_hit_done: bool = false
 var _die_started: bool = false
 var _death_fade: float = 0.0
+var _hurt_t: float = 0.0
 
 func _ready() -> void:
 	max_health = 7
@@ -101,13 +105,21 @@ func _physics_process(delta: float) -> void:
 	super._physics_process(delta)   # chase + move + contact chip
 	if _dying:
 		return
+	# Brief HURT flinch overlaid on the chase (doesn't freeze movement).
+	if _hurt_t > 0.0:
+		_hurt_t -= delta
+		if _cur != "hurt":
+			_set_anim("hurt")
+		_step_anim(delta)
+		_face_player()
+		return
 	var d: float = INF
 	if is_instance_valid(player):
 		d = global_position.distance_to(player.global_position)
 	var aggro_ok: bool = (not ArpgState.active) or _aggro_t > 0.0
 	if _atk_cd <= 0.0 and d <= ATTACK_RANGE and aggro_ok:
 		_attacking = true
-		_set_anim("attack")
+		_set_anim("attack" if randf() < 0.5 else "attack2")
 		return
 	if velocity.length() > 8.0:
 		_set_anim("walk")
@@ -144,6 +156,12 @@ func _process_death(delta: float) -> void:
 		modulate.a = clampf(1.0 - _death_fade / 0.45, 0.0, 1.0)
 		if _death_fade >= 0.45:
 			queue_free()
+
+func take_damage(amount: int, crit: bool = false) -> void:
+	super.take_damage(amount, crit)
+	# Flinch — but not mid-swing (don't cancel a committed attack) and rate-limited.
+	if not _dying and not _attacking and _hurt_t <= 0.0:
+		_hurt_t = HURT_DURATION
 
 func _load_png(path: String) -> Texture2D:
 	if ResourceLoader.exists(path):

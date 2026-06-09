@@ -1,11 +1,12 @@
 extends Area2D
 
-# Telegraphed cyclic floor spike trap for the dungeon. Cycle: dormant plate →
-# plate reddens (warning) → spikes stab up (damaging) → retract. Always
-# telegraphed on a readable rhythm so it's dodgeable, not a cheap-shot.
-# Spike art: "Animated traps and obstacles" by Irina Mir (CC-BY 3.0).
+# Telegraphed cyclic floor SPIKE TRAP. Cycle: retracted plate → reddens (warning)
+# → spikes stab up (damaging) → retract. Always telegraphed on a readable rhythm
+# so it's dodgeable. Uses the animated 14-frame spike sheet (32px frames).
 
-const SpikeTex := preload("res://assets/trap_spikes.png")
+const SHEET_PATH := "res://assets/trap_spike.png"
+const FRAMES := 14
+const DANGER_P := 0.78   # phase at/after which the spikes are up and hurt
 
 @export var cycle: float = 2.8
 @export var damage: int = 1
@@ -13,9 +14,7 @@ const SpikeTex := preload("res://assets/trap_spikes.png")
 @export var phase_offset: float = -1.0   # >=0 → fixed start phase (ripple lines)
 
 var _t: float = 0.0
-var _spikes: Sprite2D
-var _plate: ColorRect
-var _spike_base_y: float = 1.0
+var _spr: Sprite2D
 var _dmg_cd: float = 0.0
 
 func _ready() -> void:
@@ -23,49 +22,68 @@ func _ready() -> void:
 	collision_mask = 1
 	z_index = -2
 	z_as_relative = false
+	add_to_group("hazards")          # enemies dodge it while the spikes are UP
 	_t = phase_offset if phase_offset >= 0.0 else randf() * cycle
-	_plate = ColorRect.new()
-	_plate.size = Vector2(tile, tile)
-	_plate.position = Vector2(-tile / 2.0, -tile / 2.0)
-	_plate.color = Color(0.11, 0.10, 0.13)
-	add_child(_plate)
-	_spikes = Sprite2D.new()
-	_spikes.texture = SpikeTex
-	_spike_base_y = (tile * 0.94) / float(SpikeTex.get_width())
-	_spikes.scale = Vector2(_spike_base_y, _spike_base_y)
-	_spikes.offset = Vector2(0, -float(SpikeTex.get_height()) * 0.5)  # rise from floor
-	_spikes.position = Vector2(0, tile * 0.45)
-	_spikes.modulate = Color(1, 1, 1, 0)
-	_spikes.z_index = 1
-	add_child(_spikes)
+	_spr = Sprite2D.new()
+	_spr.texture = _load_tex(SHEET_PATH)
+	_spr.hframes = FRAMES
+	_spr.vframes = 1
+	_spr.frame = 0
+	_spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	var s: float = tile / 32.0
+	_spr.scale = Vector2(s, s)
+	add_child(_spr)
 	var cs := CollisionShape2D.new()
 	var rect := RectangleShape2D.new()
 	rect.size = Vector2(tile * 0.82, tile * 0.82)
 	cs.shape = rect
 	add_child(cs)
 
+func is_dangerous() -> bool:
+	return fmod(_t, cycle) / cycle >= DANGER_P
+
+func _frame_for(p: float) -> int:
+	if p < 0.62:
+		return 0
+	if p < DANGER_P:
+		return clampi(int((p - 0.62) / 0.16 * 8.0), 0, 8)        # rising
+	if p < 0.90:
+		return clampi(8 + int((p - DANGER_P) / 0.12 * 3.0), 8, 11)  # fully up
+	return clampi(11 + int((p - 0.90) / 0.10 * 3.0), 11, 13)         # retracting
+
 func _process(delta: float) -> void:
 	_t += delta
 	if _dmg_cd > 0.0:
 		_dmg_cd -= delta
 	var p: float = fmod(_t, cycle) / cycle
-	if p < 0.62:
-		_plate.color = _plate.color.lerp(Color(0.11, 0.10, 0.13), clampf(delta * 8.0, 0, 1))
-		_spikes.modulate.a = lerpf(_spikes.modulate.a, 0.0, clampf(delta * 12.0, 0, 1))
-		_spikes.scale.y = lerpf(_spikes.scale.y, _spike_base_y * 0.25, clampf(delta * 12.0, 0, 1))
-	elif p < 0.78:
-		var tp: float = (p - 0.62) / 0.16
-		_plate.color = Color(0.11 + 0.28 * tp, 0.09, 0.11)
-		_spikes.modulate.a = tp * 0.45
-		_spikes.scale.y = _spike_base_y * (0.25 + 0.35 * tp)
-	else:
-		_spikes.modulate.a = 1.0
-		_spikes.scale.y = _spike_base_y
-		_plate.color = Color(0.22, 0.09, 0.10)
-		if _dmg_cd <= 0.0:
-			for b in get_overlapping_bodies():
-				if b.is_in_group("player") and b.has_method("take_damage"):
-					b.take_damage(damage)
-					_dmg_cd = 0.7
-					Juice.shake(0.16)
-					break
+	if is_instance_valid(_spr):
+		_spr.frame = _frame_for(p)
+		# Redden as a warning telegraph just before the spikes come up.
+		if p >= 0.62 and p < DANGER_P:
+			var tp: float = (p - 0.62) / (DANGER_P - 0.62)
+			_spr.modulate = Color(1.0, 1.0 - 0.45 * tp, 1.0 - 0.5 * tp)
+		elif p >= DANGER_P:
+			_spr.modulate = Color(1.0, 0.78, 0.74)
+		else:
+			_spr.modulate = Color(1, 1, 1)
+	# Damage while the spikes are up.
+	if p >= DANGER_P and _dmg_cd <= 0.0:
+		for b in get_overlapping_bodies():
+			if b.is_in_group("player") and b.has_method("take_damage"):
+				b.take_damage(damage)
+				_dmg_cd = 0.7
+				Juice.shake(0.16)
+				break
+
+func _load_tex(path: String) -> Texture2D:
+	if ResourceLoader.exists(path):
+		var t: Texture2D = load(path) as Texture2D
+		if t != null:
+			return t
+	if FileAccess.file_exists(path):
+		var b := FileAccess.get_file_as_bytes(path)
+		if b.size() > 0:
+			var img := Image.new()
+			if img.load_png_from_buffer(b) == OK:
+				return ImageTexture.create_from_image(img)
+	return null
