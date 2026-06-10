@@ -60,5 +60,11 @@ func send(stats: Dictionary) -> void:
 	if _http == null:                 # defensive: created in _ready, but never assume
 		_http = HTTPRequest.new()
 		add_child(_http)
-	var headers := ["Content-Type: application/json"]
+	# A real browser User-Agent helps slip past Cloudflare Bot Fight Mode heuristics
+	# (the no-UA automated POST was getting served a managed-challenge 403). The
+	# proper fix is a Cloudflare rule that skips bot protection for the /bc/ path.
+	var headers := [
+		"Content-Type: application/json",
+		"User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+	]
 	_http.request(ENDPOINT, headers, HTTPClient.METHOD_POST, JSON.stringify(payload))

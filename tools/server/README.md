@@ -1,29 +1,43 @@
-# Bear Crawl telemetry — setup  (PRIVATE TESTING)
+# Bear Crawl telemetry — setup (PRIVATE TESTING)
 
 For private testers only. Collects gameplay stats keyed by a random per-install
-UUID (no hardware fingerprint) — the same metrics the in-game STATS screen shows.
-This build always reports while an endpoint is configured (no in-game toggle).
+UUID (no hardware fingerprint, no stored IP). Same metrics the in-game STATS
+screen shows. The build always reports while an endpoint is configured.
 
-## 1. Host the receiver (Bluehost)
-1. Pick a shared key (any random string).
-2. Edit `telemetry.php` → set `$KEY` to it.
-3. Upload `telemetry.php` **and** `.htaccess` into a folder on your site,
-   e.g. `public_html/bc/` → `https://mattkelly.com/bc/telemetry.php`.
-4. The script auto-creates `bc/telemetry_data/` and writes one `<id>.json` per
-   player there. The `.htaccess` blocks anyone from browsing/downloading it.
+## Keys (two of them, on purpose)
+- **`$KEY`** — the SHARED upload key. It also ships inside the public `.exe`, so
+  treat it as **not secret**; it only deters random internet POSTs.
+- **`$ADMIN_KEY`** — a **server-only** secret. Never in the client. Gates reading
+  (`?dump`) and wiping (`?wipe`) everyone's data. Keep it private; rotate anytime.
 
-## 2. Turn it on in the game
-In `scripts/telemetry.gd`:
-```
-const ENDPOINT  := "https://mattkelly.com/bc/telemetry.php"
-const SHARED_KEY := "<same key as the PHP>"
-```
-Rebuild + release. Testers' lifetime stats now upload on each run end (rate-limited).
+Both are pre-filled in `telemetry.php`. The admin key is currently:
+`bc-admin-a07f991ed98cdea548048b7f6610123db2a6eee620240469`
 
-## 3. View everyone's data
-Download the `telemetry_data` folder (cPanel File Manager / FTP), then:
+## 1. Deploy / update the receiver (Bluehost)
+Upload `telemetry.php` **and** `.htaccess` into `public_html/bc/`
+→ `https://mattkelly.com/bc/telemetry.php`.
+Re-uploading the new `telemetry.php` is safe: it keeps the same `$KEY`, so testers'
+uploads keep working — it just adds the admin read/wipe endpoints. The `.htaccess`
+blocks anyone from browsing/downloading `telemetry_data/`.
+
+## 2. Pull everyone's stats on demand (admin)
+The admin key goes in a **header** (kept out of server access logs), not the URL:
 ```
-python tools/analytics_report.py path/to/telemetry_data
+curl -s -H "X-Admin-Key: bc-admin-a07f991ed98cdea548048b7f6610123db2a6eee620240469" \
+  "https://mattkelly.com/bc/telemetry.php?dump=1" -o dump.json
+python tools/analytics_report.py dump.json
 ```
-It merges every player's stats into one dashboard (player count, combined charts,
-enemy TTK across the whole player base, etc.).
+That writes the combined dashboard (`analytics_report.html`) + a per-player report
+for each install id (`players/<id>.html`), with the roster and Back-Shot/TTK
+sections across the whole player base. (Use `curl`, not Python's urllib —
+Cloudflare's WAF flags urllib's TLS fingerprint.)
+
+## 3. Wipe the dataset (admin, between test rounds)
+```
+curl -s -H "X-Admin-Key: <ADMIN_KEY>" "https://mattkelly.com/bc/telemetry.php?wipe=all"
+# keep specific ids:  ...?wipe=all&keep=4d617474,<id>
+```
+
+## Alternative (no admin endpoint)
+You can still just download the `telemetry_data` folder from cPanel and run
+`python tools/analytics_report.py path/to/telemetry_data`.

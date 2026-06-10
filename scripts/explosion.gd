@@ -21,14 +21,20 @@ var _flash_energy0: float = 3.0
 
 func _ready() -> void:
 	_frames = _load_frames(FX_DIR)
-	# Single-frame sprite — we swap the texture each step (no sheet hframes).
-	sprite.hframes = 1
-	sprite.vframes = 1
 	sprite.centered = true
 	sprite.offset = Vector2.ZERO
 	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	if not _frames.is_empty():
+		# Single-frame sprite — swap the texture each step (no sheet hframes).
+		sprite.hframes = 1
+		sprite.vframes = 1
 		sprite.texture = _frames[0]
+	else:
+		# Fallback: frame loading failed — DON'T force hframes=1 (that renders the
+		# whole packed sheet as ONE image → a grid of explosions across the screen,
+		# the bug players hit). Keep the scene sheet's hframes/vframes and step the
+		# frame in _process so it still plays a single animated burst.
+		sprite.frame = 0
 	sprite.scale = Vector2(start_scale, start_scale) * BASE_SCALE_MULT
 	# AAA pop: warm HDR overdrive so flames bloom through the glow pass.
 	sprite.self_modulate = Color(1.28, 1.16, 1.04)
@@ -49,30 +55,25 @@ func _process(delta: float) -> void:
 	if not _frames.is_empty():
 		var idx: int = clampi(int(p * float(_frames.size())), 0, _frames.size() - 1)
 		sprite.texture = _frames[idx]
+	else:
+		var total: int = maxi(1, sprite.hframes * sprite.vframes)
+		sprite.frame = clampi(int(p * float(total)), 0, total - 1)
 	if _flash != null:
 		_flash.energy = _flash_energy0 * clampf(1.0 - p / 0.6, 0.0, 1.0)
 	if _t >= duration:
 		queue_free()
 
 func _load_frames(dir: String) -> Array[Texture2D]:
+	# Load frames by explicit imported-resource path via load(). The old
+	# DirAccess+FileAccess scan worked in the editor but returned NOTHING in exported
+	# builds (the pngs become .ctex and the raw files/dir-listing aren't there), so
+	# every player saw the tiled-sheet bug. Frames are named f01.png, f02.png, …
 	var out: Array[Texture2D] = []
-	var names: Array[String] = []
-	var da := DirAccess.open(dir)
-	if da == null:
-		return out
-	da.list_dir_begin()
-	var fn := da.get_next()
-	while fn != "":
-		if fn.to_lower().ends_with(".png"):
-			names.append(fn)
-		fn = da.get_next()
-	da.list_dir_end()
-	names.sort()
-	for n in names:
-		var f := FileAccess.open(dir + n, FileAccess.READ)
-		if f == null:
-			continue
-		var img := Image.new()
-		if img.load_png_from_buffer(f.get_buffer(f.get_length())) == OK:
-			out.append(ImageTexture.create_from_image(img))
+	for i in range(1, 99):
+		var p := "%sf%02d.png" % [dir, i]
+		if not ResourceLoader.exists(p):
+			break
+		var t := load(p) as Texture2D
+		if t != null:
+			out.append(t)
 	return out

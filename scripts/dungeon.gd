@@ -1099,20 +1099,24 @@ func _load_props(cats: Array) -> Array:
 # Returns [{name, tex}] for a category so scenes can pick by sprite role
 # (chair_* / desk_* / locker / shelf / cabinet …).
 func _load_named(cat: String) -> Array:
+	# Export-safe: DirAccess lists "x.png.import" in packed builds, so strip the
+	# suffix and dedupe (the editor lists both the png and its sidecar).
 	var out: Array = []
 	var dirp: String = "res://assets/backrooms/props/%s/" % cat
 	var da := DirAccess.open(dirp)
 	if da == null:
 		return out
-	da.list_dir_begin()
-	var fn := da.get_next()
-	while fn != "":
-		if fn.to_lower().ends_with(".png"):
-			var t := _load_tex_mip(dirp + fn)
-			if t != null:
-				out.append({"name": fn.get_basename(), "tex": t})
-		fn = da.get_next()
-	da.list_dir_end()
+	var seen := {}
+	for fn in da.get_files():
+		var clean: String = fn
+		if clean.ends_with(".import") or clean.ends_with(".remap"):
+			clean = clean.get_basename()
+		if not clean.to_lower().ends_with(".png") or seen.has(clean):
+			continue
+		seen[clean] = true
+		var t := _load_tex_mip(dirp + clean)   # robust loader (falls back to load())
+		if t != null:
+			out.append({"name": clean.get_basename(), "tex": t})
 	return out
 
 func _corner_spot(room: Rect2i) -> Dictionary:

@@ -106,23 +106,31 @@ func _on_impact() -> void:
 
 func _load_frames(dir: String) -> Array[Texture2D]:
 	var out: Array[Texture2D] = []
+	var names: Array[String] = _dir_pngs(dir)
+	for n in names:
+		if ResourceLoader.exists(dir + n):
+			var t := load(dir + n) as Texture2D
+			if t != null:
+				out.append(t)
+	return out
+
+# Export-safe directory PNG lister. In exported builds DirAccess lists "x.png.import"
+# (not the raw png), and a FileAccess read of the raw png fails — so strip the
+# .import/.remap suffix, dedupe (the editor lists BOTH the png and its sidecar), and
+# the caller load()s the resource (which follows the remap to the packed .ctex).
+func _dir_pngs(dir: String) -> Array[String]:
 	var names: Array[String] = []
 	var da := DirAccess.open(dir)
 	if da == null:
-		return out
-	da.list_dir_begin()
-	var fn := da.get_next()
-	while fn != "":
-		if fn.to_lower().ends_with(".png"):
-			names.append(fn)
-		fn = da.get_next()
-	da.list_dir_end()
-	names.sort()
-	for n in names:
-		var f := FileAccess.open(dir + n, FileAccess.READ)
-		if f == null:
+		return names
+	var seen := {}
+	for fn in da.get_files():
+		var clean: String = fn
+		if clean.ends_with(".import") or clean.ends_with(".remap"):
+			clean = clean.get_basename()
+		if not clean.to_lower().ends_with(".png") or seen.has(clean):
 			continue
-		var img := Image.new()
-		if img.load_png_from_buffer(f.get_buffer(f.get_length())) == OK:
-			out.append(ImageTexture.create_from_image(img))
-	return out
+		seen[clean] = true
+		names.append(clean)
+	names.sort()
+	return names

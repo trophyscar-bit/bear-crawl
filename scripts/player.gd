@@ -425,11 +425,14 @@ func _proj_tex(name: String) -> Texture2D:
 		return _proj_cache[name]
 	var t: Texture2D = null
 	var path: String = "res://assets/projectiles/%s.png" % name
-	var f := FileAccess.open(path, FileAccess.READ)
-	if f != null:
-		var img := Image.new()
-		if img.load_png_from_buffer(f.get_buffer(f.get_length())) == OK:
-			t = ImageTexture.create_from_image(img)
+	if ResourceLoader.exists(path):           # imported resource (works in export)
+		t = load(path) as Texture2D
+	if t == null:
+		var f := FileAccess.open(path, FileAccess.READ)
+		if f != null:
+			var img := Image.new()
+			if img.load_png_from_buffer(f.get_buffer(f.get_length())) == OK:
+				t = ImageTexture.create_from_image(img)
 	_proj_cache[name] = t
 	return t
 

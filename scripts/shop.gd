@@ -10,12 +10,7 @@ const GlowTex := preload("res://assets/light_radial.png")
 var FrameTex: Texture2D   # wood window frame (Level-0-2) — loaded at runtime (no .import)
 
 func _load_frame_tex() -> void:
-	var f := FileAccess.open("res://assets/ui_frame.png", FileAccess.READ)
-	if f == null:
-		return
-	var img := Image.new()
-	if img.load_png_from_buffer(f.get_buffer(f.get_length())) == OK:
-		FrameTex = ImageTexture.create_from_image(img)
+	FrameTex = _ui_tex("res://assets/ui_frame.png")   # robust loader (export-safe)
 
 # ── PARCHMENT theme (design 2) ───────────────────────────────────────────────
 const BG_TOP   := Color(0.185, 0.135, 0.088)
@@ -80,6 +75,10 @@ func _flat(bg: Color, border_col: Color, border: int, radius: int, pad: int) -> 
 
 # ── framed wood-UI helpers (Kenney RPG UI, CC0) ──────────────────────────────
 func _ui_tex(path: String) -> Texture2D:
+	if ResourceLoader.exists(path):           # imported resource (works in export)
+		var rt := load(path) as Texture2D
+		if rt != null:
+			return rt
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
 		return null

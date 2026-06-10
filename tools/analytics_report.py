@@ -89,6 +89,10 @@ def find_json():
 def pct(part, whole):
     return (100.0 * part / whole) if whole else 0.0
 
+def mmss(seconds):
+    s = int(round(seconds))
+    return f"{s // 60}:{s % 60:02d}"
+
 def bar_chart(title, d, total=None, unit="", fmt="{:.0f}", color="#caa15a", top=12, icons=False):
     items = sorted(d.items(), key=lambda kv: kv[1], reverse=True)[:top]
     if not items:
@@ -174,35 +178,39 @@ def render_html(L, players, extra_top=""):
     picks = L.get("upgrades_picked", {})
 
     # ── summary cards ─────────────────────────────────────────────────────────
+    # "Win rate" removed — there's no win condition, so it was always 0%.
+    # "Dmg taken/hit" = how hard an enemy hit lands on YOU (not your output).
     avg_dph = per("damage_taken") / max(1.0, per("hits_taken"))
     summ = [
         ("Players", f"{players}"),
         ("Runs", f"{runs}"),
-        ("Win rate", f"{pct(wins, runs):.0f}%"),
         ("Best floor", f"{int(L.get('best_floor', 0))}"),
         ("Avg floor", f"{per('floor_reached'):.1f}"),
-        ("Avg run", f"{per('duration'):.0f}s"),
+        ("Avg run", mmss(per('duration'))),
         ("Avg levels", f"{per('levels'):.1f}"),
         ("Avg gold", f"{per('gold_gained'):.0f}"),
-        ("Avg dmg/hit", f"{avg_dph:.1f}"),
+        ("Dmg taken/hit", f"{avg_dph:.1f}"),
         ("Avg alive peak", f"{per('alive_peak'):.0f}"),
     ]
     scards = "".join(f'<div class="stat"><div class="num">{v}</div><div class="cap">{k}</div></div>' for k, v in summ)
 
     # ── enemy table ───────────────────────────────────────────────────────────
+    # Tankiness now leads with HITS-TO-KILL and EFFECTIVE HP (avg damage dealt to
+    # kill one — weapon-independent), since time-to-kill is noisy. "Fight time" is
+    # the reworked TTK: active combat only, not wall-clock-since-first-hit.
     spawned = L.get("mobs_spawned", {})
     erows = ""
-    for t, e in sorted(ed.items(), key=lambda kv: kv[1].get("count", 0), reverse=True):
+    for t, e in sorted(ed.items(), key=lambda kv: kv[1].get("hits_sum", 0) / max(1, kv[1].get("count", 1)), reverse=True):
         c = max(1, int(e.get("count", 0)))
         sp = int(spawned.get(t, 0))
         ttk = e.get("ttk_sum", 0) / c
         hits = e.get("hits_sum", 0) / c
         hp = e.get("dmg_sum", 0) / c
         erows += (f"<tr><td>{mob_icon(t, 30)}{html.escape(t)}</td><td>{sp}</td><td>{int(e['count'])}</td>"
-                  f"<td>{ttk:.2f}s</td><td>{hits:.1f}</td><td>{hp:.1f}</td></tr>")
-    etable = (f'<div class="card wide"><h3>Enemy profile</h3><table>'
-              f'<tr><th>type</th><th>spawned</th><th>killed</th><th>avg TTK</th>'
-              f'<th>hits&#8203;-to-kill</th><th>HP (dmg)</th></tr>{erows}</table></div>')
+                  f"<td><b>{hits:.1f}</b></td><td>{hp:.0f}</td><td>{ttk:.1f}s</td></tr>")
+    etable = (f'<div class="card wide"><h3>Enemy tankiness</h3><table>'
+              f'<tr><th>type</th><th>spawned</th><th>killed</th>'
+              f'<th>hits&#8203;-to-kill</th><th>effective HP</th><th>fight time</th></tr>{erows}</table></div>')
 
     # ── suggestions / heuristics ──────────────────────────────────────────────
     sug = []
@@ -216,19 +224,20 @@ def render_html(L, players, extra_top=""):
         if pct(n, ptot) >= 35:
             sug.append(("warn", f"Level-up <b>{html.escape(u)}</b> picked {pct(n, ptot):.0f}% of the time — likely a no-brainer; review its power/cost."))
         break
+    # Tankiness flags use HITS-to-kill now (unambiguous), not the noisy time metric.
     for t, e in ed.items():
         c = max(1, int(e.get("count", 0)))
         if c < 5:
             continue
-        ttk = e.get("ttk_sum", 0) / c
-        if ttk < 0.4:
-            sug.append(("info", f"{mob_icon(t, 26)}<b>{html.escape(t)}</b> dies almost instantly (avg TTK {ttk:.2f}s) — trivial / maybe too weak."))
-        elif ttk > 6:
-            sug.append(("warn", f"{mob_icon(t, 26)}<b>{html.escape(t)}</b> is a sponge (avg TTK {ttk:.1f}s) — may feel too tanky."))
-    if pct(wins, runs) >= 70 and runs >= 5:
-        sug.append(("warn", f"Win rate {pct(wins, runs):.0f}% — game may be too easy."))
-    if deaths and pct(deaths, runs) >= 90 and runs >= 5:
-        sug.append(("warn", f"Death rate {pct(deaths, runs):.0f}% — game may be too hard."))
+        hits = e.get("hits_sum", 0) / c
+        if hits < 1.5:
+            sug.append(("info", f"{mob_icon(t, 26)}<b>{html.escape(t)}</b> dies in ~{hits:.1f} hits — trivial / maybe too weak."))
+        elif hits > 10:
+            sug.append(("warn", f"{mob_icon(t, 26)}<b>{html.escape(t)}</b> takes ~{hits:.1f} hits to kill — may feel too spongy."))
+    # No win condition exists, so there's no win-rate signal. Death rate ~100% is
+    # expected (every run ends in death); only flag if runs are ending very fast.
+    if runs >= 5 and (T.get("duration", 0) / runs) < 60:
+        sug.append(("warn", f"Average run is only {mmss(T.get('duration',0)/runs)} — players may be dying too fast."))
     if not sug:
         sug.append(("info", "Nothing jumps out yet — play more runs for clearer signal."))
     # ── Back Shot effectiveness ───────────────────────────────────────────────
@@ -313,34 +322,51 @@ def build_roster(users):
     for u in sorted(users, key=lambda x: int(x.get("stats", {}).get("runs", 0)), reverse=True):
         st = u.get("stats", {})
         runs, wins, when = player_label(u)
+        avg_floor = float(st.get("totals", {}).get("floor_reached", 0)) / max(1, runs)
         rid = str(u.get("id", "?"))
         sid = NAME_MAP.get(rid, rid[:10])
         rows += (f'<tr><td><a href="players/{html.escape(rid)}.html" target="_blank">{html.escape(sid)}</a></td>'
                  f'<td>{html.escape(str(u.get("version","")))}</td><td>{runs}</td>'
-                 f'<td>{int(st.get("best_floor",0))}</td><td>{pct(wins,max(1,runs)):.0f}%</td>'
+                 f'<td>{int(st.get("best_floor",0))}</td><td>{avg_floor:.1f}</td>'
                  f'<td>{when}</td></tr>')
     return ('<div class="section">Players</div><div class="grid"><div class="card wide"><h3>Per-player roster (click an id)</h3>'
             '<table><tr><th>install id</th><th>ver</th><th>runs</th><th>best floor</th>'
-            f'<th>win%</th><th>last seen</th></tr>{rows}</table></div></div>')
+            f'<th>avg floor</th><th>last seen</th></tr>{rows}</table></div></div>')
 
 def main():
     arg = sys.argv[1] if len(sys.argv) > 1 else None
     out = os.path.join(REPO, "analytics_report.html")
 
+    # Build a per-player `users` list from either a telemetry_data folder OR a
+    # dump JSON file ({"players":[...]} from telemetry.php?dump). Multi-player mode.
+    raw_users = None
     if arg and os.path.isdir(arg):
-        users = []
+        raw_users = []
         for fp in sorted(glob.glob(os.path.join(arg, "*.json"))):
             try:
-                u = json.load(open(fp, encoding="utf-8"))
+                raw_users.append(json.load(open(fp, encoding="utf-8")))
             except Exception:
                 continue
-            uid = str(u.get("id", os.path.splitext(os.path.basename(fp))[0]))
+    elif arg and os.path.isfile(arg) and arg.lower().endswith(".json"):
+        try:
+            doc = json.load(open(arg, encoding="utf-8"))
+        except Exception:
+            doc = None
+        if isinstance(doc, dict) and isinstance(doc.get("players"), list):
+            raw_users = doc["players"]            # server dump
+        elif isinstance(doc, list):
+            raw_users = doc
+
+    if raw_users is not None:
+        users = []
+        for u in raw_users:
+            uid = str(u.get("id", "?"))
             if uid in IGNORE_IDS:
                 print("  (skipping test/legacy id %s)" % uid)
                 continue
             users.append(u)
         if not users:
-            print("No per-player files in", arg)
+            print("No (non-test) player records in", arg)
             return
         merged = {}
         for u in users:

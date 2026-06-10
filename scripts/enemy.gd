@@ -15,7 +15,12 @@ static var _stain_tex: Array = []   # persistent floor/wall stuffing decals
 var _stuffing_mult: float = 1.0     # per-enemy size of the stuffing puff (skeletons shrink it)
 var mob_type: String = "?"          # set by the spawner — for analytics
 var _spawn_ms: int = 0              # spawn timestamp
-var _first_hit_ms: int = -1         # timestamp of the FIRST hit — TTK is measured from here
+# "Fight time" = time spent ACTIVELY under fire. We only add the gap between two
+# hits if they're close together; if you hit a mob then run off for 30s, that idle
+# stretch is NOT counted (the old "first hit → death" made everything look tanky).
+const TTK_GAP_MS: int = 2500
+var _last_hit_ms: int = -1
+var _combat_ms: int = 0
 var _dmg_recv: int = 0             # total damage taken (≈ effective HP)
 var _hits_recv: int = 0           # number of hits taken to die
 var shadow_abs_y: float = -1.0      # if >=0, absolute shadow feet-offset (non-bear rigs)
@@ -775,6 +780,12 @@ func _stuffing_tex(big: bool) -> Texture2D:
 	return _stuff_small
 
 func _stuffing_load(path: String) -> Texture2D:
+	# Imported resource first (works in exported builds); raw read is the editor/
+	# non-imported fallback. A FileAccess-only load returned null in the export.
+	if ResourceLoader.exists(path):
+		var rt := load(path) as Texture2D
+		if rt != null:
+			return rt
 	if FileAccess.file_exists(path):
 		var b := FileAccess.get_file_as_bytes(path)
 		if b.size() > 0:
@@ -839,8 +850,14 @@ func take_damage(amount: int, crit: bool = false, from_back: bool = false) -> vo
 	if _dying:
 		return
 	_last_from_back = from_back   # remember for kill attribution (back-shot analytics)
-	if _first_hit_ms < 0:
-		_first_hit_ms = Time.get_ticks_msec()   # start the TTK clock on the first hit
+	# Accumulate ACTIVE fight time: add the gap since the last hit only if it was
+	# recent (sustained fire). Idle stretches where the mob was left alone don't count.
+	var now_ms: int = Time.get_ticks_msec()
+	if _last_hit_ms >= 0:
+		var gap: int = now_ms - _last_hit_ms
+		if gap <= TTK_GAP_MS:
+			_combat_ms += gap
+	_last_hit_ms = now_ms
 	_dmg_recv += amount
 	_hits_recv += 1
 	_spawn_damage_number(amount, crit)
@@ -942,10 +959,9 @@ func _kill_collision() -> void:
 
 func _begin_death() -> void:
 	_dying = true
-	# TTK = time UNDER FIRE (first hit → kill), not time alive. Falls back to the
-	# spawn time only if it somehow died without ever being hit.
-	var ttk_from: int = _first_hit_ms if _first_hit_ms >= 0 else _spawn_ms
-	var ttk: float = float(Time.get_ticks_msec() - ttk_from) / 1000.0
+	# "Fight time" = accumulated ACTIVE combat (sum of close-together hit gaps), so a
+	# mob you tag then ignore for a minute doesn't read as a 60s kill.
+	var ttk: float = float(_combat_ms) / 1000.0
 	var killer: String = String(ArpgState.weapon.get("name", "?")) if ArpgState.active else "?"
 	Stats.enemy_killed_detail(mob_type, ttk, _hits_recv, _dmg_recv, killer)
 	Stats.kill_facing(_last_from_back)

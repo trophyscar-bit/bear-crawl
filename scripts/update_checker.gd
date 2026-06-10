@@ -80,6 +80,17 @@ func _on_request_completed(result: int, code: int, _headers: PackedStringArray, 
 			_set_panel("Download failed.", "Couldn't fetch the update — try again later.", [
 				{"text": "Close", "cb": _close_overlay}])
 			return
+		# Guard: the exe is ~400 MB. Anything tiny means a redirect page / partial
+		# download — swapping that in would brick the install, so reject it.
+		var sz: int = 0
+		var df := FileAccess.open(_download_path, FileAccess.READ)
+		if df != null:
+			sz = df.get_length()
+			df.close()
+		if sz < 50_000_000:
+			_set_panel("Download failed.", "The update looked incomplete (%d KB). Please try again." % int(sz / 1024), [
+				{"text": "Close", "cb": _close_overlay}])
+			return
 		_show_relaunch_prompt()
 
 # ── splash UI ───────────────────────────────────────────────────────────────
@@ -98,9 +109,12 @@ func _show_update_splash() -> void:
 	dim.color = Color(0.0, 0.0, 0.04, 0.86)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_overlay.add_child(dim)
+	# Centre via a full-rect CenterContainer so the splash is always on screen at any
+	# resolution (the old fixed position pushed it off the edge).
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_overlay.add_child(center)
 	var panel := PanelContainer.new()
-	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.position = Vector2(440, 280)
 	panel.custom_minimum_size = Vector2(560, 250)
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.09, 0.09, 0.13, 0.98)
@@ -108,7 +122,7 @@ func _show_update_splash() -> void:
 	sb.set_corner_radius_all(16)
 	sb.set_content_margin_all(26)
 	panel.add_theme_stylebox_override("panel", sb)
-	_overlay.add_child(panel)
+	center.add_child(panel)
 	_panel_vbox = VBoxContainer.new()
 	_panel_vbox.add_theme_constant_override("separation", 16)
 	_panel_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -192,29 +206,47 @@ func _process(delta: float) -> void:
 func _apply_update() -> void:
 	_relaunching = false
 	var exe := OS.get_executable_path()
-	var bat := exe.get_base_dir().path_join("_bearcrawl_update.bat")
-	# Swap in the new file once this exe closes. The old exe stays LOCKED for a
-	# moment after quit (and longer if OneDrive/AV is touching it), so a single
-	# move often failed silently → the OLD exe relaunched (the "still old version"
-	# bug). Retry the move until the source is actually gone, then relaunch.
-	var script := "@echo off\r\n" \
-		+ "set \"SRC=%s\"\r\n" % _download_path \
-		+ "set \"DST=%s\"\r\n" % exe \
-		+ "set tries=0\r\n" \
-		+ ":retry\r\n" \
-		+ "timeout /t 1 /nobreak >nul\r\n" \
-		+ "move /y \"%SRC%\" \"%DST%\" >nul 2>&1\r\n" \
-		+ "if not exist \"%SRC%\" goto done\r\n" \
-		+ "set /a tries+=1\r\n" \
-		+ "if %tries% lss 20 goto retry\r\n" \
-		+ ":done\r\n" \
-		+ "start \"\" \"%DST%\"\r\n" \
-		+ "del \"%%~f0\"\r\n"
+	var dir := exe.get_base_dir()
+	var name := exe.get_file()                        # e.g. BEAR_GAME.exe
+	var old_name := name.get_basename() + "_old.exe"  # BEAR_GAME_old.exe
+	var old_full := dir.path_join(old_name)
+	var log := dir.path_join("_bearcrawl_update.log")
+	var bat := dir.path_join("_bearcrawl_update.bat")
+	var q := "\""
+	# Windows lets you RENAME a running .exe even though it can't be OVERWRITTEN —
+	# so rename the live exe aside, drop the new build into its place, then relaunch.
+	# This sidesteps the file lock that made the old move-based swap silently fail
+	# and relaunch the old version. A safety branch restores the backup if the move
+	# didn't land, and every step is logged to _bearcrawl_update.log for diagnosis.
+	# Built with plain concatenation (no % format operator) to avoid batch %-escaping.
+	var s := "@echo off\r\n"
+	s += "echo Bear Crawl updater > " + q + log + q + "\r\n"
+	s += "del /f /q " + q + old_full + q + " >nul 2>&1\r\n"
+	s += "timeout /t 1 /nobreak >nul\r\n"
+	# Try to rename the live exe aside (works on a running exe via FILE_SHARE_DELETE).
+	s += "ren " + q + exe + q + " " + q + old_name + q + " >> " + q + log + q + " 2>&1\r\n"
+	# Drop the new build in. If the rename didn't free the name (exe still locked),
+	# the move retries until the game process fully exits and releases the lock.
+	s += "set tries=0\r\n"
+	s += ":movetry\r\n"
+	s += "move /y " + q + _download_path + q + " " + q + exe + q + " >> " + q + log + q + " 2>&1\r\n"
+	s += "if not exist " + q + _download_path + q + " goto launch\r\n"
+	s += "set /a tries+=1\r\n"
+	s += "if %tries% geq 30 goto launch\r\n"
+	s += "timeout /t 1 /nobreak >nul\r\n"
+	s += "goto movetry\r\n"
+	s += ":launch\r\n"
+	# Safety: if the new exe somehow isn't in place, restore the backup so the
+	# install isn't bricked.
+	s += "if not exist " + q + exe + q + " ren " + q + old_full + q + " " + q + name + q + "\r\n"
+	s += "start " + q + q + " " + q + exe + q + "\r\n"
+	s += "del /f /q " + q + old_full + q + " >nul 2>&1\r\n"
+	s += "del /f /q " + q + bat + q + "\r\n"
 	var f := FileAccess.open(bat, FileAccess.WRITE)
 	if f == null:
 		_set_panel("Update failed.", "Couldn't write the updater script.", [{"text": "Close", "cb": _close_overlay}])
 		return
-	f.store_string(script)
+	f.store_string(s)
 	f.close()
 	OS.create_process("cmd.exe", ["/c", bat])
 	get_tree().quit()

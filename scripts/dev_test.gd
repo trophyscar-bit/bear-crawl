@@ -1394,6 +1394,12 @@ func _prop_sprite(tex: Texture2D, pos: Vector2, rot: float) -> void:
 	add_child(s)
 
 func _load_tex(path: String) -> Texture2D:
+	# Resource FIRST (the imported .ctex) — exported builds drop the raw .png, so a
+	# FileAccess-only read silently failed there (level previews broke for players).
+	if ResourceLoader.exists(path):
+		var t: Texture2D = load(path) as Texture2D
+		if t != null:
+			return t
 	var f := FileAccess.open(path, FileAccess.READ)
 	if f == null:
 		return null
@@ -1403,21 +1409,24 @@ func _load_tex(path: String) -> Texture2D:
 	return null
 
 func _load_dir(dir: String) -> Array:
+	# Export-safe: DirAccess lists "x.png.import" in packed builds, so strip the
+	# suffix, dedupe, and load() the resource (raw FileAccess reads fail in export).
 	var out: Array = []
 	var da := DirAccess.open(dir)
 	if da == null:
 		return out
-	da.list_dir_begin()
-	var fn := da.get_next()
-	while fn != "":
-		if fn.to_lower().ends_with(".png"):
-			var f := FileAccess.open(dir + fn, FileAccess.READ)
-			if f != null:
-				var img := Image.new()
-				if img.load_png_from_buffer(f.get_buffer(f.get_length())) == OK:
-					out.append(ImageTexture.create_from_image(img))
-		fn = da.get_next()
-	da.list_dir_end()
+	var seen := {}
+	for fn in da.get_files():
+		var clean: String = fn
+		if clean.ends_with(".import") or clean.ends_with(".remap"):
+			clean = clean.get_basename()
+		if not clean.to_lower().ends_with(".png") or seen.has(clean):
+			continue
+		seen[clean] = true
+		if ResourceLoader.exists(dir + clean):
+			var t := load(dir + clean) as Texture2D
+			if t != null:
+				out.append(t)
 	return out
 
 func _spawn_player(pos: Vector2) -> void:
