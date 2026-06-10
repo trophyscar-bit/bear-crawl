@@ -390,10 +390,14 @@ func _refresh() -> void:
 		for i in range(0, _asc_level):
 			lines.append("• " + ASCENSION_CURSES[i])
 		stack_label.text = "\n".join(lines)
-	# Reward multiplier
+	# Reward multiplier + how to unlock the next ascension (it wasn't explained).
 	var reward_idx: int = min(_asc_level, ASCENSION_REWARDS.size() - 1)
-	max_unlock_label.text = "%s     •     max unlocked: %d" % [
-		ASCENSION_REWARDS[reward_idx], MetaSave.max_ascension
+	var unlock_hint: String = ""
+	if MetaSave.max_ascension < 5:
+		unlock_hint = "\nTo unlock Ascension %d:  beat a run (reach Floor %d) on Ascension %d." % [
+			MetaSave.max_ascension + 1, 10, MetaSave.max_ascension]
+	max_unlock_label.text = "%s     •     max unlocked: %d%s" % [
+		ASCENSION_REWARDS[reward_idx], MetaSave.max_ascension, unlock_hint
 	]
 	# Pip highlight
 	for i in _pip_buttons.size():

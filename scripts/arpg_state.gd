@@ -303,8 +303,15 @@ func weapon_eval(w: Dictionary) -> Dictionary:
 	var dmg: int = int(ceil(float(w.get("dmg", 1)) * dmg_mult)) + bonus_damage()
 	var cd: float = maxf(0.06, float(w.get("cooldown", 0.34)) * cooldown_mult)
 	var cnt: int = int(w.get("count", 1)) + bonus_projectiles
+	# EFFECTIVE DPS — pierce/bounce hit extra enemies, which the raw single-target
+	# number ignored, making heavy piercing weapons (e.g. Deep-Dish) read as strict
+	# downgrades. In this swarm game a piercing shot reliably catches a 2nd mob, so
+	# each pierce ≈ +70% throughput, each bounce ≈ +30%.
+	var pierce: int = int(w.get("pierce", 0))
+	var bounces: int = int(w.get("bounces", 0))
+	var eff: float = (float(dmg * cnt) / cd) * (1.0 + 0.7 * float(pierce)) * (1.0 + 0.3 * float(bounces))
 	return {
-		"dps": float(dmg * cnt) / cd,
+		"dps": eff,
 		"dmg": dmg,
 		"rate": 1.0 / cd,
 		"count": cnt,
@@ -413,8 +420,10 @@ func generate_shop(_count: int = 5) -> Array:
 		{"id": "firerate",  "name": "Greased Oven",         "desc": "+12% Fire Rate (all)", "color": Color(1.0, 0.85, 0.4)},
 		{"id": "crit",      "name": "Spicy Pepperoni",      "desc": "+7% Crit Chance",   "color": Color(1.0, 0.4, 0.7)},
 		{"id": "speed",     "name": "Roller Skates",        "desc": "+8% Move Speed",     "color": Color(0.5, 0.8, 1.0)},
-		{"id": "weapon",    "name": "New Weapon!",          "desc": "Swap to a brand-new RANDOM weapon — always Rare or better. Keeps half its level.", "color": Color(1.0, 0.78, 0.25)},
+		{"id": "weapon",    "name": "New Weapon!",          "desc": "Trade your weapon for a random new type — GUARANTEED Rare or better. You keep half its level.", "color": Color(1.0, 0.78, 0.25)},
 	]
+	if crit_chance >= 0.50:   # crit capped — drop the dead "50% → 50%" offer
+		pool = pool.filter(func(c: Dictionary) -> bool: return String(c.get("id", "")) != "crit")
 	if not back_shot and level >= 5:   # gated — it's a build-defining power spike, not a lvl-2 freebie
 		pool.append({"id": "back_shot", "name": "Back Shot", "desc": "Also fire out the back", "color": Color(0.7, 0.5, 1.0)})
 	pool.shuffle()
@@ -423,6 +432,37 @@ func generate_shop(_count: int = 5) -> Array:
 		item["cost"] = _shop_cost(String(item["id"]))
 		offers.append(item)
 	return offers
+
+# Concrete "current → after" for a shop offer, so the player sees the real effect
+# (not just "+7% Crit"). Returns "" if there's nothing meaningful to show.
+func shop_preview(offer: Dictionary) -> String:
+	# Weapon LEVEL-UP offer — build the actual next-level weapon and compare DPS.
+	if bool(offer.get("weapon_upgrade", false)) or String(offer.get("id", "")) == "w_level":
+		var before: Dictionary = weapon_eval(weapon)
+		var arch: Dictionary = _archetype_by_name(String(weapon.get("name", "")))
+		var nxt: Dictionary = _build_weapon(arch, int(weapon.get("lvl", 1)) + 1, int(weapon.get("rarity", 0)))
+		return "DPS  %.0f → %.0f" % [float(before.get("dps", 0.0)), float(weapon_eval(nxt).get("dps", 0.0))]
+	match String(offer.get("id", "")):
+		"crit":
+			return "Crit  %d%% → %d%%" % [int(crit_chance * 100.0), int(minf(crit_chance + 0.07, 0.50) * 100.0)]
+		"dmg":
+			var cur: int = int(weapon_eval(weapon).get("dmg", 0))
+			var nxt: int = int(ceil(float(weapon.get("dmg", 1)) * dmg_mult * 1.10)) + bonus_damage()
+			return "Damage  %d → %d" % [cur, nxt]
+		"firerate":
+			var cd: float = weapon_cooldown()
+			return "Fire rate  %.2f/s → %.2f/s" % [1.0 / cd, 1.0 / maxf(0.06, cd * 0.88)]
+		"speed":
+			return "Move speed  +%d%% → +%d%%" % [int(round((speed_mult - 1.0) * 100.0)), int(round((speed_mult + 0.08 - 1.0) * 100.0))]
+		"maxhp":
+			var hp: int = 5 + MetaSave.upgrade_level("more_plush") + bonus_maxhp
+			return "Max HP  %d → %d" % [hp, hp + 4]
+		"back_shot":
+			return "Adds a 2nd volley out your back"
+		"weapon":
+			var lv: int = int(weapon.get("lvl", 1))
+			return "%s Lv%d  →  Rare+ Lv%d" % [RARITY_NAMES[int(weapon.get("rarity", 0))], lv, maxi(1, lv / 2)]
+	return ""
 
 func _shop_cost(id: String) -> int:
 	var base: Dictionary = {"maxhp": 18, "dmg": 26, "firerate": 24, "crit": 22, "speed": 16, "weapon": 20, "back_shot": 40}
@@ -480,6 +520,8 @@ func level_up_options() -> Array:
 		{"id": "crit",     "name": "Spicy Pepperoni",     "desc": "+7% Crit Chance", "color": Color(1.0, 0.4, 0.7)},
 		{"id": "speed",    "name": "Roller Skates",       "desc": "+8% Move Speed",   "color": Color(0.5, 0.8, 1.0)},
 	]
+	if crit_chance >= 0.50:   # crit is capped — don't offer a dead "50% → 50%" card
+		pool = pool.filter(func(c: Dictionary) -> bool: return String(c.get("id", "")) != "crit")
 	if not back_shot and level >= 5:   # gated — it's a build-defining power spike, not a lvl-2 freebie
 		pool.append({"id": "back_shot", "name": "Back Shot", "desc": "Also fire backward", "color": Color(0.7, 0.5, 1.0)})
 	pool.shuffle()

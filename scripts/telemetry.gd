@@ -7,7 +7,7 @@ extends Node
 # This build is for private testers, so it just always reports while an ENDPOINT
 # is set — no in-game toggle or notice. ENDPOINT empty = off (the master switch).
 
-const ENDPOINT: String = "https://mattkelly.com/bc/telemetry.php"
+const ENDPOINT: String = "http://bc.mattkelly.com/telemetry.php"   # self-hosted box (bypasses Bluehost's Cloudflare bot challenge)
 const SHARED_KEY: String = "mk-bc-7x9qR2wNpL"   # must match the server script
 const ID_PATH := "user://install_id.txt"
 const MIN_INTERVAL := 30.0                    # don't spam the server

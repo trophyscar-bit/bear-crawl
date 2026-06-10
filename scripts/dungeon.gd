@@ -1673,19 +1673,33 @@ func dev_weapon_summary() -> String:
 var _stats_layer: CanvasLayer = null
 
 func _stat_line(parent: VBoxContainer, key: String, val: String, accent: Color = Color(1, 1, 1)) -> void:
+	# Divider rows (dashes, empty value) → render a clean thin rule, not dash text.
+	if val == "" and key.begins_with("─"):
+		var rule := Panel.new()
+		rule.custom_minimum_size = Vector2(0, 1)
+		var rsb := StyleBoxFlat.new(); rsb.bg_color = Color(0.78, 0.64, 0.36, 0.28)
+		rule.add_theme_stylebox_override("panel", rsb)
+		var wrap := MarginContainer.new()
+		wrap.add_theme_constant_override("margin_top", 5); wrap.add_theme_constant_override("margin_bottom", 5)
+		wrap.add_child(rule)
+		parent.add_child(wrap)
+		return
+	# Key (dim, fixed width) then value right beside it — not flung to opposite edges.
 	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
 	parent.add_child(row)
 	var k := Label.new()
 	k.text = key
-	k.add_theme_font_size_override("font_size", 19)
-	k.add_theme_color_override("font_color", Color(0.66, 0.7, 0.8))
-	k.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	k.add_theme_font_size_override("font_size", 18)
+	k.add_theme_color_override("font_color", Color(0.60, 0.64, 0.74))
+	k.custom_minimum_size = Vector2(160, 0)
 	row.add_child(k)
 	var v := Label.new()
 	v.text = val
-	v.add_theme_font_size_override("font_size", 19)
-	v.add_theme_color_override("font_color", accent)
-	v.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	v.add_theme_font_size_override("font_size", 18)
+	# One calm, readable value colour (the per-stat rainbow was the noise) — accent
+	# is kept only as a faint tint so it's not a wall of identical text.
+	v.add_theme_color_override("font_color", accent.lerp(Color(1.0, 0.97, 0.88), 0.78))
 	row.add_child(v)
 
 func _toggle_stats() -> void:
@@ -1749,6 +1763,9 @@ func _toggle_stats() -> void:
 	var rar: int = int(w.get("rarity", 0))
 	_stat_line(vb, "Weapon", "%s %s" % [ArpgState.RARITY_NAMES[rar], w.get("name", "—")], ArpgState.RARITY_COLORS[rar])
 	_stat_line(vb, "   Level", "%d / %d" % [int(w.get("lvl", 1)), ArpgState.WEAPON_MAX_LVL])
+	_stat_line(vb, "   DPS", "%.0f" % float(ArpgState.weapon_eval(w).get("dps", 0.0)), Color(1.0, 0.72, 0.5))
+	_stat_line(vb, "   Per-shot Dmg", "%d" % ArpgState.weapon_damage())
+	_stat_line(vb, "   Proj. Speed", "%d" % int(w.get("speed", 600.0)))
 	_stat_line(vb, "   Projectiles", "%d" % ArpgState.weapon_count())
 	_stat_line(vb, "   Pierce", "%d" % int(w.get("pierce", 0)))
 	if bool(w.get("ball", false)):
@@ -2644,6 +2661,10 @@ func _levelup_change(opt: Dictionary) -> Array:
 func _pick_level_up(layer: CanvasLayer, opt: Dictionary) -> void:
 	Stats.upgrade_picked(String(opt.get("id", "?")))
 	ArpgState.apply_upgrade(opt)
+	# Re-apply boons so stat changes (esp. +4 Max HP) take effect immediately —
+	# apply_boons raises max_health AND heals by the increase.
+	if is_instance_valid(_player) and _player.has_method("apply_boons"):
+		_player.apply_boons()
 	_refresh_hud()
 	if is_instance_valid(layer):
 		layer.queue_free()

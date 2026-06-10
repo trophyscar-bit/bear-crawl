@@ -208,7 +208,10 @@ func apply_boons() -> void:
 	# Meta upgrades from MetaSave (persistent)
 	var meta_hp: int = MetaSave.upgrade_level("more_plush")
 	var meta_speed_mult: float = 1.0 + 0.05 * MetaSave.upgrade_level("faster_feet")
-	max_health = base_max_health + meta_hp + RunState.bonus_max_health()
+	# RunState.bonus_max_health() = Plush Armor boons; ArpgState.bonus_max_health()
+	# = the +4 Max HP level-up/shop cards. The latter was MISSING here, so picking
+	# "+4 Max HP" did nothing.
+	max_health = base_max_health + meta_hp + RunState.bonus_max_health() + ArpgState.bonus_max_health()
 	speed = base_speed * meta_speed_mult * RunState.move_speed_multiplier()
 	# Ascension 4: start at 3 HP instead of 5
 	if GameSettings.ascension >= 4:

@@ -251,6 +251,24 @@ func _make_card(index: int) -> Control:
 	desc_l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	col.add_child(desc_l)
 
+	# Concrete "current → after" so the player sees the real effect, not just "+7%".
+	# Full-width band so the text has room to word-wrap (a centered shrink-chip broke
+	# it one char per line).
+	var preview: String = ArpgState.shop_preview(offer)
+	if preview != "":
+		var pv := PanelContainer.new()
+		var pvsb := StyleBoxFlat.new()
+		pvsb.bg_color = Color(0.20, 0.33, 0.50) if is_weapon else Color(0.24, 0.40, 0.22)
+		pvsb.set_corner_radius_all(7)
+		pvsb.content_margin_top = 4; pvsb.content_margin_bottom = 4
+		pvsb.content_margin_left = 6; pvsb.content_margin_right = 6
+		pv.add_theme_stylebox_override("panel", pvsb)
+		var pl := _label(preview, 13, Color(1, 0.98, 0.9))
+		pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		pl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		pv.add_child(pl)
+		col.add_child(pv)
+
 	if is_weapon:
 		var wname := _label("› %s" % String(offer.get("weapon_name", "")), 12, MUTE.darkened(0.1))
 		wname.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

@@ -15,7 +15,7 @@ Both are pre-filled in `telemetry.php`. The admin key is currently:
 
 ## 1. Deploy / update the receiver (Bluehost)
 Upload `telemetry.php` **and** `.htaccess` into `public_html/bc/`
-→ `https://mattkelly.com/bc/telemetry.php`.
+→ `http://bc.mattkelly.com/telemetry.php`.
 Re-uploading the new `telemetry.php` is safe: it keeps the same `$KEY`, so testers'
 uploads keep working — it just adds the admin read/wipe endpoints. The `.htaccess`
 blocks anyone from browsing/downloading `telemetry_data/`.
@@ -24,7 +24,7 @@ blocks anyone from browsing/downloading `telemetry_data/`.
 The admin key goes in a **header** (kept out of server access logs), not the URL:
 ```
 curl -s -H "X-Admin-Key: bc-admin-a07f991ed98cdea548048b7f6610123db2a6eee620240469" \
-  "https://mattkelly.com/bc/telemetry.php?dump=1" -o dump.json
+  "http://bc.mattkelly.com/telemetry.php?dump=1" -o dump.json
 python tools/analytics_report.py dump.json
 ```
 That writes the combined dashboard (`analytics_report.html`) + a per-player report
@@ -34,7 +34,7 @@ Cloudflare's WAF flags urllib's TLS fingerprint.)
 
 ## 3. Wipe the dataset (admin, between test rounds)
 ```
-curl -s -H "X-Admin-Key: <ADMIN_KEY>" "https://mattkelly.com/bc/telemetry.php?wipe=all"
+curl -s -H "X-Admin-Key: <ADMIN_KEY>" "http://bc.mattkelly.com/telemetry.php?wipe=all"
 # keep specific ids:  ...?wipe=all&keep=4d617474,<id>
 ```
 
