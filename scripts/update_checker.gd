@@ -193,12 +193,22 @@ func _apply_update() -> void:
 	_relaunching = false
 	var exe := OS.get_executable_path()
 	var bat := exe.get_base_dir().path_join("_bearcrawl_update.bat")
-	# Wait for this exe to close (it's locked while running), swap in the new file,
-	# relaunch, then delete the batch.
+	# Swap in the new file once this exe closes. The old exe stays LOCKED for a
+	# moment after quit (and longer if OneDrive/AV is touching it), so a single
+	# move often failed silently → the OLD exe relaunched (the "still old version"
+	# bug). Retry the move until the source is actually gone, then relaunch.
 	var script := "@echo off\r\n" \
-		+ "timeout /t 2 /nobreak >nul\r\n" \
-		+ "move /y \"%s\" \"%s\"\r\n" % [_download_path, exe] \
-		+ "start \"\" \"%s\"\r\n" % exe \
+		+ "set \"SRC=%s\"\r\n" % _download_path \
+		+ "set \"DST=%s\"\r\n" % exe \
+		+ "set tries=0\r\n" \
+		+ ":retry\r\n" \
+		+ "timeout /t 1 /nobreak >nul\r\n" \
+		+ "move /y \"%SRC%\" \"%DST%\" >nul 2>&1\r\n" \
+		+ "if not exist \"%SRC%\" goto done\r\n" \
+		+ "set /a tries+=1\r\n" \
+		+ "if %tries% lss 20 goto retry\r\n" \
+		+ ":done\r\n" \
+		+ "start \"\" \"%DST%\"\r\n" \
 		+ "del \"%%~f0\"\r\n"
 	var f := FileAccess.open(bat, FileAccess.WRITE)
 	if f == null:
