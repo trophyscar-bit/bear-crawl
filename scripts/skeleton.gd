@@ -16,8 +16,9 @@ func _ready() -> void:
 	touch_damage = 1
 	throws_stars = false
 	_stuffing_mult = 0.7   # skeletons get a 30%-smaller stuffing swoosh
-	shadow_abs_y = 76.0    # shadow at the skeleton's feet (its rig scale is large)
+	shadow_abs_y = 86.0    # shadow at the skeleton's feet — nudged a touch lower
 	shadow_abs_w = 72.0
+	shadow_abs_x = 12.0    # and a touch to the right
 	super._ready()
 	# The shared HP-bar offset assumes a ~0.4 bear rig scale; the skeleton's 2.8
 	# scale flung it way overhead. Pin the bar just above his head.

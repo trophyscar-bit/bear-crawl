@@ -21,6 +21,7 @@ const BURN_DPS: int = 1
 const BURN_DURATION: float = 3.0
 
 var direction: Vector2 = Vector2.RIGHT
+var from_back: bool = false   # fired by the Back Shot rear volley (for kill analytics)
 var _age: float = 0.0
 var _consumed: bool = false
 var _bounces_done: int = 0
@@ -158,7 +159,7 @@ func _on_body_entered(body: Node) -> void:
 			if _hit_ids.has(id):
 				return  # already hit this one (pierced)
 			_hit_ids[id] = true
-			body.take_damage(damage, is_crit)
+			body.take_damage(damage, is_crit, from_back)
 			if apply_burn and body.has_method("apply_burn"):
 				body.apply_burn(BURN_DPS, BURN_DURATION)
 			if burst_on_impact:

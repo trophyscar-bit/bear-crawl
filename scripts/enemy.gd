@@ -14,11 +14,14 @@ static var _stuff_small: Texture2D = null
 static var _stain_tex: Array = []   # persistent floor/wall stuffing decals
 var _stuffing_mult: float = 1.0     # per-enemy size of the stuffing puff (skeletons shrink it)
 var mob_type: String = "?"          # set by the spawner — for analytics
-var _spawn_ms: int = 0              # for time-to-kill
+var _spawn_ms: int = 0              # spawn timestamp
+var _first_hit_ms: int = -1         # timestamp of the FIRST hit — TTK is measured from here
 var _dmg_recv: int = 0             # total damage taken (≈ effective HP)
 var _hits_recv: int = 0           # number of hits taken to die
 var shadow_abs_y: float = -1.0      # if >=0, absolute shadow feet-offset (non-bear rigs)
 var shadow_abs_w: float = 64.0      # absolute shadow width when shadow_abs_y is used
+var shadow_abs_x: float = 0.0       # horizontal nudge for the absolute shadow
+var _last_from_back: bool = false   # was the most recent hit a Back Shot rear-volley pizza?
 const BrownUpperTexture := preload("res://assets/brown_upper.png")
 const BrownLegsTexture := preload("res://assets/brown_legs.png")
 const StuffingTexture := preload("res://assets/stuffing.png")
@@ -259,7 +262,7 @@ func _spawn_contact_shadow() -> void:
 	# with a very different rig (skeletons at 1.9-2.8) set absolute values instead,
 	# otherwise the shadow lands hundreds of px below them and reads as "no shadow".
 	if shadow_abs_y >= 0.0:
-		sh.position = Vector2(0, shadow_abs_y)
+		sh.position = Vector2(shadow_abs_x, shadow_abs_y)
 		sh.scale = Vector2(shadow_abs_w / tw, (shadow_abs_w * 0.42) / tw)
 	else:
 		sh.position = Vector2(0, 108.0 * k)
@@ -784,14 +787,16 @@ func _spawn_kill_stain() -> void:
 	if _stain_tex.is_empty():
 		return
 	var pos: Vector2 = global_position
-	var zi: int = -3                      # on the floor, under everything
+	# Always on the floor layer (-3): the player sits at z 0, so a stain must stay
+	# below that or it draws ON TOP of the player (the boss's 4x splat made this
+	# very obvious near walls, where it used to climb to z 1 — above the player).
+	var zi: int = -3
 	var rot: float = randf() * TAU
 	if parent.has_method("floor_at_world") and "tile" in parent:
 		var t: float = parent.tile
 		for dir in [Vector2(t, 0), Vector2(-t, 0), Vector2(0, t), Vector2(0, -t)]:
 			if not parent.floor_at_world(global_position + dir):   # a wall is there
-				pos = global_position + dir * 0.55   # climb onto the wall face
-				zi = 1                                # drawn over the wall base
+				pos = global_position + dir * 0.2    # nudge toward the wall base, stay on the floor
 				rot = dir.angle() + PI * 0.5
 				break
 	var s := Sprite2D.new()
@@ -808,9 +813,12 @@ func _spawn_kill_stain() -> void:
 	tw.tween_property(s, "modulate:a", 0.0, 5.0)        # …then slowly fade
 	tw.tween_callback(s.queue_free)
 
-func take_damage(amount: int, crit: bool = false) -> void:
+func take_damage(amount: int, crit: bool = false, from_back: bool = false) -> void:
 	if _dying:
 		return
+	_last_from_back = from_back   # remember for kill attribution (back-shot analytics)
+	if _first_hit_ms < 0:
+		_first_hit_ms = Time.get_ticks_msec()   # start the TTK clock on the first hit
 	_dmg_recv += amount
 	_hits_recv += 1
 	_spawn_damage_number(amount, crit)
@@ -912,9 +920,13 @@ func _kill_collision() -> void:
 
 func _begin_death() -> void:
 	_dying = true
-	var ttk: float = float(Time.get_ticks_msec() - _spawn_ms) / 1000.0
+	# TTK = time UNDER FIRE (first hit → kill), not time alive. Falls back to the
+	# spawn time only if it somehow died without ever being hit.
+	var ttk_from: int = _first_hit_ms if _first_hit_ms >= 0 else _spawn_ms
+	var ttk: float = float(Time.get_ticks_msec() - ttk_from) / 1000.0
 	var killer: String = String(ArpgState.weapon.get("name", "?")) if ArpgState.active else "?"
 	Stats.enemy_killed_detail(mob_type, ttk, _hits_recv, _dmg_recv, killer)
+	Stats.kill_facing(_last_from_back)
 	_spawn_stuffing(true)    # big stuffing burst on death
 	_spawn_kill_stain()      # + a lingering floor/wall stain
 	if is_boss:

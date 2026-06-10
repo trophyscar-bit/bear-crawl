@@ -17,6 +17,7 @@ var _facing: int = 1
 var _offscreen_t: float = 0.0   # how long he's been off-camera
 var _last_pos: Vector2 = Vector2.ZERO
 var _stuck_t: float = 0.0
+var _step_t: float = 0.0         # walk-bob phase (so he steps instead of floating)
 
 func _ready() -> void:
 	add_to_group("ally")
@@ -43,7 +44,7 @@ func _physics_process(delta: float) -> void:
 	_retarget_t -= delta
 	if _retarget_t <= 0.0:
 		_retarget_t = randf_range(1.2, 2.3)
-		_offset = Vector2.from_angle(randf() * TAU) * randf_range(260.0, 400.0)
+		_offset = Vector2.from_angle(randf() * TAU) * randf_range(247.0, 380.0)  # ~5% closer
 	var target: Vector2 = ppos + _offset
 	var to: Vector2 = target - global_position
 	var far: float = global_position.distance_to(ppos)
@@ -98,6 +99,15 @@ func _physics_process(delta: float) -> void:
 	if absf(velocity.x) > 4.0:
 		_facing = 1 if velocity.x > 0.0 else -1
 		_rig.scale.x = absf(_rig.scale.x) * _facing
+	# Walk-bob: little hops while moving so he reads as stepping, not flying. The
+	# step rate scales with how fast he's going; he settles flat when idle.
+	var sp: float = velocity.length()
+	if sp > 25.0:
+		_step_t += delta * (7.0 + sp * 0.02)
+		_rig.position.y = -absf(sin(_step_t)) * 6.0
+	else:
+		_step_t = 0.0
+		_rig.position.y = lerpf(_rig.position.y, 0.0, 0.2)
 	# Mimic the player's weapon at half damage.
 	_shoot_t -= delta
 	if _shoot_t <= 0.0:

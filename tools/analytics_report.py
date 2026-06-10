@@ -21,6 +21,18 @@ try:
 except Exception:
     _PIL = False
 
+# Friendly names for known install ids (server keeps hex only; "4d617474" = "Matt" in ASCII).
+NAME_MAP = {
+    "4d617474": "Matt",
+}
+
+# Test / legacy install ids to drop from every report (junk uploads, pre-rename
+# data, etc.). Anything listed here is skipped when loading the dataset.
+IGNORE_IDS = {
+    "aaaa1111test",                       # early connectivity test
+    "46489ff34e9d2ceb2b4ac45bc04e7582",   # Matt's pre-rename random id (now "4d617474")
+}
+
 # mob scene-name -> (sprite file, frame_count for spritesheets)
 ICON_MAP = {
     "skeleton": ("skeleton_walk.png", 13), "sword_skeleton": ("sword_skel_idle.png", 8),
@@ -219,6 +231,26 @@ def render_html(L, players, extra_top=""):
         sug.append(("warn", f"Death rate {pct(deaths, runs):.0f}% — game may be too hard."))
     if not sug:
         sug.append(("info", "Nothing jumps out yet — play more runs for clearer signal."))
+    # ── Back Shot effectiveness ───────────────────────────────────────────────
+    kb = int(T.get("kills_from_behind", 0))   # kills by the rear (Back Shot) volley
+    kf = int(T.get("kills_from_front", 0))     # kills by normal shots
+    ktot = kb + kf
+    if ktot > 0:
+        back_pct = pct(kb, ktot)
+        bs_cards = (
+            f'<div class="stat"><div class="num">{back_pct:.0f}%</div><div class="cap">kills from Back Shot</div></div>'
+            f'<div class="stat"><div class="num">{kb}</div><div class="cap">back-shot kills</div></div>'
+            f'<div class="stat"><div class="num">{kf}</div><div class="cap">front kills</div></div>'
+        )
+        backshot_html = (f'<div class="section">Back Shot effectiveness</div>'
+                         f'<div class="stats">{bs_cards}</div>'
+                         f'<p class="muted" style="margin:6px 2px">Share of all kills dealt by the rear (Back Shot) volley. '
+                         f'A high share suggests the back volley is carrying too much — consider reducing its damage.</p>')
+        if back_pct >= 35:
+            sug.append(("warn", f"Back Shot rear volley scored <b>{back_pct:.0f}%</b> of all kills — it may be too strong; consider reduced rear-volley damage."))
+    else:
+        backshot_html = ""
+
     sug_html = "".join(f'<div class="sug {c}">{m}</div>' for c, m in sug)
 
     # ── charts ────────────────────────────────────────────────────────────────
@@ -261,6 +293,7 @@ a{{color:#6fd3ff;text-decoration:none}} a:hover{{text-decoration:underline}}
 <p class="sub">{players} player(s) · {runs} runs · generated {datetime.datetime.now():%Y-%m-%d %H:%M}</p>
 <div class="stats">{scards}</div>
 {extra_top}
+{backshot_html}
 <div class="section">Suggestions</div>{sug_html}
 <div class="section">Enemy balance</div><div class="grid">{etable}</div>
 <div class="section">Charts</div><div class="grid">{charts}</div>
@@ -280,8 +313,9 @@ def build_roster(users):
     for u in sorted(users, key=lambda x: int(x.get("stats", {}).get("runs", 0)), reverse=True):
         st = u.get("stats", {})
         runs, wins, when = player_label(u)
-        sid = str(u.get("id", "?"))[:10]
-        rows += (f'<tr><td><a href="players/{html.escape(str(u.get("id","?")))}.html" target="_blank">{html.escape(sid)}</a></td>'
+        rid = str(u.get("id", "?"))
+        sid = NAME_MAP.get(rid, rid[:10])
+        rows += (f'<tr><td><a href="players/{html.escape(rid)}.html" target="_blank">{html.escape(sid)}</a></td>'
                  f'<td>{html.escape(str(u.get("version","")))}</td><td>{runs}</td>'
                  f'<td>{int(st.get("best_floor",0))}</td><td>{pct(wins,max(1,runs)):.0f}%</td>'
                  f'<td>{when}</td></tr>')
@@ -297,9 +331,14 @@ def main():
         users = []
         for fp in sorted(glob.glob(os.path.join(arg, "*.json"))):
             try:
-                users.append(json.load(open(fp, encoding="utf-8")))
+                u = json.load(open(fp, encoding="utf-8"))
             except Exception:
-                pass
+                continue
+            uid = str(u.get("id", os.path.splitext(os.path.basename(fp))[0]))
+            if uid in IGNORE_IDS:
+                print("  (skipping test/legacy id %s)" % uid)
+                continue
+            users.append(u)
         if not users:
             print("No per-player files in", arg)
             return

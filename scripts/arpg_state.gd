@@ -46,10 +46,10 @@ func begin_spawn_grace(seconds: float) -> void:
 
 const RARITY_NAMES := ["Common", "Magic", "Rare", "Legendary"]
 const RARITY_COLORS := [
-	Color(0.78, 0.78, 0.82),   # common  - grey
-	Color(0.45, 0.65, 1.0),    # magic   - blue
-	Color(1.0, 0.82, 0.30),    # rare    - gold
-	Color(1.0, 0.5, 0.2),      # legend  - orange
+	Color(0.92, 0.92, 0.95),   # common    - white  (classic ARPG rarity ramp)
+	Color(0.35, 0.85, 0.40),   # magic     - green
+	Color(0.70, 0.42, 1.00),   # rare      - purple
+	Color(1.00, 0.82, 0.20),   # legendary - gold/yellow
 ]
 
 # Weapon archetypes — equipping one genuinely changes the attack feel.
@@ -178,8 +178,17 @@ func weapon_next_label() -> String:
 		return String((path[lvl - 1] as Dictionary).get("label", ""))
 	return ""
 
+var run_time: float = 0.0   # total elapsed time for the WHOLE run (across floors)
+
+func _process(delta: float) -> void:
+	# Accumulate total run time while a run is active. As an autoload this pauses
+	# with the tree (so it stops on the character screen, like the stage timer).
+	if active:
+		run_time += delta
+
 func reset_run() -> void:
 	active = true
+	run_time = 0.0
 	Stats.start_run()
 	depth = 1
 	level = 1
@@ -404,7 +413,7 @@ func generate_shop(_count: int = 5) -> Array:
 		{"id": "firerate",  "name": "Greased Oven",         "desc": "+12% Fire Rate (all)", "color": Color(1.0, 0.85, 0.4)},
 		{"id": "crit",      "name": "Spicy Pepperoni",      "desc": "+7% Crit Chance",   "color": Color(1.0, 0.4, 0.7)},
 		{"id": "speed",     "name": "Roller Skates",        "desc": "+8% Move Speed",     "color": Color(0.5, 0.8, 1.0)},
-		{"id": "weapon",    "name": "Mystery Box",          "desc": "New random weapon type — Rare+ (keeps half your level)", "color": Color(0.85, 0.85, 0.9)},
+		{"id": "weapon",    "name": "New Weapon!",          "desc": "Swap to a brand-new RANDOM weapon — always Rare or better. Keeps half its level.", "color": Color(1.0, 0.78, 0.25)},
 	]
 	if not back_shot and level >= 5:   # gated — it's a build-defining power spike, not a lvl-2 freebie
 		pool.append({"id": "back_shot", "name": "Back Shot", "desc": "Also fire out the back", "color": Color(0.7, 0.5, 1.0)})
@@ -444,7 +453,7 @@ func apply_upgrade(item: Dictionary) -> void:
 	else:
 		match id:
 			"maxhp":     bonus_maxhp += 4
-			"dmg":       dmg_mult += 0.10
+			"dmg":       dmg_mult *= 1.10   # true compounding +10% of CURRENT damage (was a flat +10% of BASE, which vanished into rounding at high levels)
 			"firerate":  cooldown_mult *= 0.88
 			"crit":      crit_chance = minf(crit_chance + 0.07, 0.50)   # capped at 50% — crit scales too hard unchecked
 			"speed":     speed_mult += 0.08

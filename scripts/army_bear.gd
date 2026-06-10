@@ -6,10 +6,12 @@ extends "res://scripts/critter.gd"
 
 const StrikeScene := preload("res://scenes/ground_slam.tscn")
 var _strike_t: float = 0.0
+var _burst_t: float = 0.0   # secondary attack: anti-air flak ring of ninja stars
 
 func _ready() -> void:
 	super._ready()
 	_strike_t = randf_range(2.5, 4.0)
+	_burst_t = randf_range(1.6, 2.6)
 
 func _physics_process(delta: float) -> void:
 	if _dying:
@@ -37,6 +39,25 @@ func _physics_process(delta: float) -> void:
 	if _strike_t <= 0.0 and _has_los_to_player():
 		_strike_t = 5.5 + randf_range(-0.5, 1.0)
 		_call_airstrike()
+	# Secondary: a flak ring of ninja stars between airstrikes so he's a constant
+	# threat (not just a 3-missile pause). Fires faster once he's wounded (≤50% HP).
+	_burst_t -= delta
+	if _burst_t <= 0.0 and _has_los_to_player():
+		var wounded: bool = float(health) <= float(max_health) * 0.5
+		_burst_t = (1.7 if wounded else 2.7) + randf_range(-0.3, 0.5)
+		_flak_burst(wounded)
+
+func _flak_burst(wounded: bool) -> void:
+	# Ring of glowing stars fanned outward, aimed off the player's bearing so there's
+	# always a gap to read — denser/faster when wounded.
+	var n: int = 12 if wounded else 9
+	var base: float = 0.0
+	if is_instance_valid(player):
+		base = ((player as Node2D).global_position - global_position).angle()
+	for i in n:
+		var a: float = base + TAU * float(i) / float(n)
+		_spawn_ninja_star(Vector2.from_angle(a), true)
+	Juice.shake(0.12)
 
 func _call_airstrike() -> void:
 	if not is_instance_valid(player):

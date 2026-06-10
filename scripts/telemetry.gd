@@ -57,5 +57,8 @@ func send(stats: Dictionary) -> void:
 		"ts": int(Time.get_unix_time_from_system()),
 		"stats": stats,
 	}
+	if _http == null:                 # defensive: created in _ready, but never assume
+		_http = HTTPRequest.new()
+		add_child(_http)
 	var headers := ["Content-Type: application/json"]
 	_http.request(ENDPOINT, headers, HTTPClient.METHOD_POST, JSON.stringify(payload))

@@ -278,6 +278,14 @@ func _physics_process(delta: float) -> void:
 	velocity = dir * speed * _slow_factor()
 	move_and_slide()
 
+	# Wounded drip trail: at critically low HP (≤2) Rupert leaks little stuffing
+	# spots at his feet as he moves — stops once healed back to 3+.
+	if not _dying and health <= 2 and dir.length() > 0.1:
+		_drip_t -= delta
+		if _drip_t <= 0.0:
+			_drip_t = randf_range(0.16, 0.26)
+			_spawn_drip()
+
 	if dir.length() > 0.1:
 		_last_dir = dir.normalized()
 
@@ -380,7 +388,9 @@ func _throw_arpg_weapon() -> void:
 	# SHORT-RANGE (≈45% range) so kiting + back-firing isn't a free win — you have to
 	# let them get close behind you for it to connect.
 	if ArpgState.back_shot:
+		_firing_back = true
 		_fire_volley(-center_dir, 0.45)
+		_firing_back = false
 
 func _fire_volley(center_dir: Vector2, range_mult: float) -> void:
 	var count: int = ArpgState.weapon_count()
@@ -407,6 +417,8 @@ func _throw_default_pizza() -> void:
 		_spawn_pizza(dir, false)
 
 var _range_mult: float = 1.0   # shortens projectile range (Back Shot rear volley)
+var _firing_back: bool = false # true while the Back Shot rear volley fires (kill analytics)
+var _drip_t: float = 0.0        # cadence for the low-HP wounded drip trail
 var _proj_cache: Dictionary = {}
 func _proj_tex(name: String) -> Texture2D:
 	if _proj_cache.has(name):
@@ -425,6 +437,7 @@ func _spawn_pizza(dir: Vector2, hostile_flag: bool) -> void:
 	var pizza := PizzaScene.instantiate()
 	pizza.global_position = global_position
 	pizza.direction = dir
+	pizza.from_back = _firing_back
 	pizza.damage = base_pizza_damage + MetaSave.upgrade_level("sharper_crust") + RunState.pizza_damage_bonus()
 	pizza.speed = base_pizza_speed * RunState.pizza_speed_multiplier()
 	pizza.max_bounces = _bounces_for_run()
@@ -566,7 +579,7 @@ func on_room_entered() -> void:
 func add_pizza_bombs(n: int) -> void:
 	grant_special("bomb", n)
 
-func _spawn_hit_stuffing() -> void:
+func _spawn_hit_stuffing(big: bool = false) -> void:
 	if _stuff_burst_tex == null:
 		var path := "res://assets/stuffing_hit.png"   # gif 3 — the player's hit puff
 		if FileAccess.file_exists(path):
@@ -577,15 +590,48 @@ func _spawn_hit_stuffing() -> void:
 					_stuff_burst_tex = ImageTexture.create_from_image(img)
 	if _stuff_burst_tex == null or not is_instance_valid(get_parent()):
 		return
-	var s := StuffingBurstScene.instantiate()
-	s.texture = _stuff_burst_tex
-	s.global_position = global_position
-	s.scale = Vector2.ONE * 2.0
-	s.rotation = randf() * TAU
-	get_parent().add_child(s)
-	_spawn_hit_stain()
+	# Normal hit = one puff. A blast (teddy bomb) = a dramatic spray of several
+	# bigger bursts flung out around Rupert, plus extra stains.
+	var bursts: int = 6 if big else 1
+	for i in bursts:
+		var s := StuffingBurstScene.instantiate()
+		s.texture = _stuff_burst_tex
+		var off: Vector2 = Vector2.ZERO if not big else Vector2.from_angle(randf() * TAU) * randf_range(0.0, 46.0)
+		s.global_position = global_position + off
+		s.scale = Vector2.ONE * (randf_range(2.6, 4.2) if big else 2.0)
+		s.rotation = randf() * TAU
+		get_parent().add_child(s)
+	var stains: int = 4 if big else 1
+	for i in stains:
+		_spawn_hit_stain(big)
 
-func _spawn_hit_stain() -> void:
+func _spawn_drip() -> void:
+	# Small stuffing spot dropped at Rupert's feet while he's badly hurt (≤3 HP).
+	if _stuff_stain_tex == null:
+		var p := "res://assets/stuffing_stain%d.png" % (1 + randi() % 2)
+		if FileAccess.file_exists(p):
+			var b := FileAccess.get_file_as_bytes(p)
+			if b.size() > 0:
+				var img := Image.new()
+				if img.load_png_from_buffer(b) == OK:
+					_stuff_stain_tex = ImageTexture.create_from_image(img)
+	if _stuff_stain_tex == null or not is_instance_valid(get_parent()):
+		return
+	var d := Sprite2D.new()
+	d.texture = _stuff_stain_tex
+	d.global_position = global_position + Vector2(randf_range(-6.0, 6.0), randf_range(2.0, 12.0))
+	d.rotation = randf() * TAU
+	d.scale = Vector2.ONE * randf_range(0.16, 0.30)   # small drips, not full splats
+	d.z_index = -3                                     # on the floor, under entities
+	d.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	d.modulate = Color(1, 1, 1, 0.8)
+	get_parent().add_child(d)
+	var tw := d.create_tween()
+	tw.tween_interval(4.0)
+	tw.tween_property(d, "modulate:a", 0.0, 3.0)
+	tw.tween_callback(d.queue_free)
+
+func _spawn_hit_stain(big: bool = false) -> void:
 	if _stuff_stain_tex == null:
 		var p := "res://assets/stuffing_stain%d.png" % (1 + randi() % 2)
 		if FileAccess.file_exists(p):
@@ -598,9 +644,10 @@ func _spawn_hit_stain() -> void:
 		return
 	var st := Sprite2D.new()
 	st.texture = _stuff_stain_tex
-	st.global_position = global_position
+	var soff: Vector2 = Vector2.ZERO if not big else Vector2.from_angle(randf() * TAU) * randf_range(0.0, 52.0)
+	st.global_position = global_position + soff
 	st.rotation = randf() * TAU
-	st.scale = Vector2.ONE * randf_range(0.7, 1.0)
+	st.scale = Vector2.ONE * (randf_range(1.0, 1.5) if big else randf_range(0.7, 1.0))
 	st.z_index = -3                       # on the floor, under entities
 	st.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 	st.modulate = Color(1, 1, 1, 0.85)
@@ -610,7 +657,7 @@ func _spawn_hit_stain() -> void:
 	tw.tween_property(st, "modulate:a", 0.0, 5.0)   # …then slowly fade
 	tw.tween_callback(st.queue_free)
 
-func take_damage(amount: int) -> void:
+func take_damage(amount: int, dramatic: bool = false) -> void:
 	if _dying or _invuln_time > 0.0:
 		return
 	if DevState.invincible:
@@ -642,7 +689,7 @@ func take_damage(amount: int) -> void:
 	_invuln_time = INVULN_DURATION
 	health -= amount
 	Stats.player_hit(amount)
-	_spawn_hit_stuffing()   # Rupert puffs stuffing when hit
+	_spawn_hit_stuffing(dramatic)   # Rupert puffs stuffing when hit (big burst for blasts)
 	modulate = Color(1, 0.4, 0.4)
 	# AAA game-feel: kick the camera + a sliver of hit-stop so damage lands hard,
 	# plus a quick chromatic-aberration flare.

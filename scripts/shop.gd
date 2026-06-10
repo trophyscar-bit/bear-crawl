@@ -50,14 +50,19 @@ func _font(l: Label, sz: int) -> void:
 
 # Brown wood button (cream label). big_cost = larger, bolder cost text.
 func _brown_button(b: Button, sz: int) -> void:
-	b.add_theme_stylebox_override("normal",   _flat(BR_BTN, BR_BTN_B, 2, 9, 8))
-	b.add_theme_stylebox_override("hover",    _flat(BR_BTN.lightened(0.10), BR_BTN_B, 2, 9, 8))
-	b.add_theme_stylebox_override("pressed",  _flat(BR_BTN.darkened(0.12), BR_BTN_B, 2, 9, 8))
-	b.add_theme_stylebox_override("focus",    _flat(BR_BTN.lightened(0.10), CREAM.darkened(0.2), 2, 9, 8))
-	b.add_theme_stylebox_override("disabled", _flat(Color(0.5, 0.42, 0.3), BR_BTN_B, 1, 9, 8))
-	b.add_theme_color_override("font_color", CREAM)
-	b.add_theme_color_override("font_hover_color", Color(1, 0.97, 0.85))
-	b.add_theme_color_override("font_disabled_color", Color(0.78, 0.72, 0.6))
+	# Darker, richer wood so the bright-gold price pops; the cost text also gets a
+	# dark outline so the number is legible at a glance (was gold-on-brown mush).
+	var wood := Color(0.42, 0.26, 0.12)
+	b.add_theme_stylebox_override("normal",   _flat(wood, BR_BTN_B, 2, 9, 8))
+	b.add_theme_stylebox_override("hover",    _flat(wood.lightened(0.12), CREAM.darkened(0.1), 2, 9, 8))
+	b.add_theme_stylebox_override("pressed",  _flat(wood.darkened(0.12), BR_BTN_B, 2, 9, 8))
+	b.add_theme_stylebox_override("focus",    _flat(wood.lightened(0.12), CREAM.darkened(0.1), 2, 9, 8))
+	b.add_theme_stylebox_override("disabled", _flat(Color(0.4, 0.34, 0.26), BR_BTN_B, 1, 9, 8))
+	b.add_theme_color_override("font_color", Color(1.0, 0.86, 0.42))          # bright gold
+	b.add_theme_color_override("font_hover_color", Color(1.0, 0.95, 0.7))
+	b.add_theme_color_override("font_disabled_color", Color(0.7, 0.66, 0.56))
+	b.add_theme_color_override("font_outline_color", Color(0.12, 0.07, 0.03, 0.95))
+	b.add_theme_constant_override("outline_size", 5)
 	if _hf != null:
 		b.add_theme_font_override("font", _hf)
 	b.add_theme_font_size_override("font_size", sz)
@@ -86,7 +91,7 @@ func _ui_tex(path: String) -> Texture2D:
 func _tex_box(path: String, tmargin: int, cmargin: int) -> StyleBox:
 	var t := _ui_tex(path)
 	if t == null:
-		return _flat(PANEL_BG, GOLD.darkened(0.2), 2, 12, cmargin)   # fallback
+		return _flat(PAPER, GOLD.darkened(0.2), 2, 12, cmargin)   # fallback
 	var sb := StyleBoxTexture.new()
 	sb.texture = t
 	sb.set_texture_margin_all(tmargin)
@@ -121,7 +126,7 @@ func _accent_button(b: Button, accent: Color) -> void:
 	b.add_theme_stylebox_override("hover",   _flat(hov,  accent.lightened(0.2), 2, 9, 10))
 	b.add_theme_stylebox_override("pressed", _flat(prs,  accent.darkened(0.1), 2, 9, 10))
 	b.add_theme_stylebox_override("focus",   _flat(hov,  accent.lightened(0.2), 2, 9, 10))
-	var dis := PANEL_BG.darkened(0.1)
+	var dis := PAPER.darkened(0.1)
 	b.add_theme_stylebox_override("disabled", _flat(dis, Color(0.3, 0.3, 0.34), 1, 9, 10))
 	b.add_theme_color_override("font_color", Color(1, 0.98, 0.92))
 	b.add_theme_color_override("font_hover_color", Color(1, 1, 1))
@@ -212,10 +217,23 @@ func _make_card(index: int) -> Control:
 	col.add_theme_constant_override("separation", 7)
 	body.add_child(col)
 
-	# Small bold category label in the accent (rarity) colour.
-	var badge := _label("⚔  WEAPON" if is_weapon else "◆  RUN UPGRADE", 13, accent.darkened(0.35))
+	# Category CHIP — a distinct coloured pill per type so "weapon upgrade" vs "run
+	# upgrade" reads instantly (steel-blue = weapon, forest-green = run upgrade).
+	var chip_bg: Color = Color(0.20, 0.33, 0.50) if is_weapon else Color(0.24, 0.40, 0.22)
+	var chip := PanelContainer.new()
+	var chsb := StyleBoxFlat.new()
+	chsb.bg_color = chip_bg
+	chsb.set_corner_radius_all(9)
+	chsb.content_margin_top = 3; chsb.content_margin_bottom = 3
+	chsb.content_margin_left = 10; chsb.content_margin_right = 10
+	chip.add_theme_stylebox_override("panel", chsb)
+	var badge := _label("⚔  WEAPON UPGRADE" if is_weapon else "★  RUN UPGRADE", 14, Color(1, 0.98, 0.92))
 	badge.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	col.add_child(badge)
+	chip.add_child(badge)
+	var chip_row := HBoxContainer.new()
+	chip_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	chip_row.add_child(chip)
+	col.add_child(chip_row)
 
 	var name_l := _label(String(offer.get("name", "?")), 20, INK)
 	_font(name_l, 20)

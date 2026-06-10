@@ -293,7 +293,7 @@ func _slow_factor() -> float:
 			return 0.55
 	return 1.0
 
-func take_damage(amount: int, crit: bool = false) -> void:
+func take_damage(amount: int, crit: bool = false, from_back: bool = false) -> void:
 	if _dying or _hit_cooldown > 0.0:
 		return
 	# Dev one-shot toggle: skip HP math, go straight to death.

@@ -116,8 +116,14 @@ func _build() -> void:
 	bg.texture = gtex; bg.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	add_child(bg)
 
-	var center := CenterContainer.new()
+	# Fill the screen (minus a margin) instead of centering a shrink-to-fit panel:
+	# centering a too-tall panel shoved its bottom (the buttons) off the screen.
+	var center := MarginContainer.new()
 	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.add_theme_constant_override("margin_left", 48)
+	center.add_theme_constant_override("margin_right", 48)
+	center.add_theme_constant_override("margin_top", 26)
+	center.add_theme_constant_override("margin_bottom", 26)
 	add_child(center)
 
 	var window := PanelContainer.new()
@@ -126,8 +132,10 @@ func _build() -> void:
 	window.add_theme_stylebox_override("panel", wsb)
 	center.add_child(window)
 
+	# root = pinned header + scrollable middle + pinned footer, so the title and the
+	# BACK button stay on screen no matter how tall the upgrade list gets.
 	var root := VBoxContainer.new()
-	root.add_theme_constant_override("separation", 14)
+	root.add_theme_constant_override("separation", 12)
 	window.add_child(root)
 
 	var title := _label("THE  WORKSHOP", 40, GOLD, true)
@@ -145,30 +153,40 @@ func _build() -> void:
 	pill.add_child(_fluff_label)
 	root.add_child(pill)
 
+	# Scrollable middle — takes the leftover vertical space; scrolls if the upgrade
+	# list is taller than the window.
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	root.add_child(scroll)
+	var content := VBoxContainer.new()
+	content.add_theme_constant_override("separation", 12)
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(content)
+
 	# Stat-track grid (3 columns).
 	var grid := GridContainer.new()
 	grid.columns = 3
+	grid.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	grid.add_theme_constant_override("h_separation", 16)
 	grid.add_theme_constant_override("v_separation", 16)
-	root.add_child(grid)
+	content.add_child(grid)
 	for id in STAT_IDS:
 		grid.add_child(_make_stat_card(id))
 
 	# Weapon unlocks (Cotton).
 	var whead := _label("WEAPON  UNLOCKS   ·   Cotton", 18, COTTON)
 	whead.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	root.add_child(whead)
+	content.add_child(whead)
 	var wrow := HBoxContainer.new()
 	wrow.alignment = BoxContainer.ALIGNMENT_CENTER
 	wrow.add_theme_constant_override("separation", 14)
-	root.add_child(wrow)
+	content.add_child(wrow)
 	for id in WEAPON_IDS:
 		wrow.add_child(_make_weapon_card(id))
 
-	# Bottom buttons — framed wood UI so they read as a finished footer.
-	var spacer := Control.new()
-	spacer.custom_minimum_size = Vector2(0, 6)
-	root.add_child(spacer)
+	# Pinned footer buttons — framed wood UI, always on screen below the scroll area.
 	var btmrow := HBoxContainer.new()
 	btmrow.alignment = BoxContainer.ALIGNMENT_CENTER
 	btmrow.add_theme_constant_override("separation", 24)

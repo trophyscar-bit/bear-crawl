@@ -10,6 +10,28 @@ $DATA = __DIR__ . '/telemetry_data'; // per-install records live here
 
 header('Content-Type: text/plain');
 
+// ── Admin: wipe stored records (reset the dataset between test rounds) ─────────
+// GET telemetry.php?wipe=all&key=THEKEY                  → delete every record
+// GET telemetry.php?wipe=all&key=THEKEY&keep=<id>,<id>   → keep those install ids
+if (isset($_GET['wipe'])) {
+  if (($_GET['key'] ?? '') !== $KEY) { http_response_code(403); exit('forbidden'); }
+  $keep = array();
+  if (!empty($_GET['keep'])) {
+    foreach (explode(',', (string)$_GET['keep']) as $k) {
+      $k = preg_replace('/[^a-f0-9]/', '', $k);
+      if ($k !== '') { $keep[$k] = true; }
+    }
+  }
+  $n = 0;
+  if (is_dir($DATA)) {
+    foreach (glob("$DATA/*.json") as $f) {
+      if (isset($keep[basename($f, '.json')])) { continue; }
+      if (@unlink($f)) { $n++; }
+    }
+  }
+  exit("wiped $n");
+}
+
 $raw = file_get_contents('php://input');
 if (strlen($raw) > 1000000) { http_response_code(413); exit('too big'); }
 $j = json_decode($raw, true);

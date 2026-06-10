@@ -127,7 +127,7 @@ func _tick_charge(delta: float) -> void:
 		_brawler_state = BrawlerState.CHASE
 		_charge_cd = CHARGE_COOLDOWN + randf_range(-1.0, 1.0)
 
-func take_damage(amount: int, crit: bool = false) -> void:
+func take_damage(amount: int, crit: bool = false, from_back: bool = false) -> void:
 	# Intercept the lethal hit. If this damage would drop HP to 0 or below,
 	# enter DEATH_LUNGE instead of going straight to the normal _begin_death.
 	# Dev one-shot also routes through here so it gets the kamikaze finale.
@@ -137,7 +137,7 @@ func take_damage(amount: int, crit: bool = false) -> void:
 	if would_kill:
 		_begin_death_lunge()
 		return
-	super.take_damage(amount, crit)
+	super.take_damage(amount, crit, from_back)
 
 func _begin_death_lunge() -> void:
 	_brawler_state = BrawlerState.DEATH_LUNGE

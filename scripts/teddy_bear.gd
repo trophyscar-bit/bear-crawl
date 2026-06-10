@@ -41,7 +41,7 @@ func _begin_death() -> void:
 func _detonate() -> void:
 	var ex := ExplosionScene.instantiate()
 	(ex as Node2D).global_position = global_position
-	ex.set("end_scale", blast_radius / 42.0)   # ~50% bigger blast
+	ex.set("end_scale", (blast_radius / 42.0) * 0.85)   # 15% smaller blast visual (radius/damage unchanged)
 	ex.set("duration", 0.55)
 	(ex as CanvasItem).modulate = Color(1.0, 0.55, 0.3, 1.0)
 	get_parent().add_child(ex)
@@ -49,7 +49,7 @@ func _detonate() -> void:
 	if p != null and is_instance_valid(p) \
 			and (p as Node2D).global_position.distance_to(global_position) <= blast_radius \
 			and p.has_method("take_damage"):
-		p.take_damage(blast_damage)
+		p.take_damage(blast_damage, true)   # dramatic blood spray — it's a point-blank blast
 	# Friendly fire — the blast strips 99% of any mob's HP in range (near-kills the
 	# whole crowd; lure bombers into a pack and watch it clear).
 	for e in get_tree().get_nodes_in_group("enemies"):

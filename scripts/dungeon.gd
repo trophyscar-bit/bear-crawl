@@ -231,19 +231,25 @@ func _generate_bsp() -> void:
 		if _rooms.size() > 2:
 			_connect_rooms(_rooms[randi() % _rooms.size()], _rooms[randi() % _rooms.size()])
 	_start_room = _rooms[0]
-	# Boss room = a RANDOM room a decent distance from the start (middle or far
-	# side) — not always parked in the far corner.
+	# Boss room = a random room on the FAR side of the map from the start — never
+	# adjacent to the spawn (you should have to travel to the boss, not wake up in
+	# the fight). Requires at least 55% of the farthest room's distance, with an
+	# absolute floor so it holds on small maps too.
 	var sc: Vector2 = Vector2(_room_center_cell(_start_room))
 	var far_fallback: int = _rooms.size() - 1
 	var far_d: float = -1.0
-	var candidates: Array = []
+	var dists: Array = []
 	for i in range(1, _rooms.size()):
 		var d: float = Vector2(_room_center_cell(_rooms[i])).distance_to(sc)
+		dists.append([i, d])
 		if d > far_d:
 			far_d = d
 			far_fallback = i
-		if d >= 7.0:
-			candidates.append(i)
+	var min_d: float = maxf(far_d * 0.55, 16.0)
+	var candidates: Array = []
+	for pair in dists:
+		if float(pair[1]) >= min_d:
+			candidates.append(int(pair[0]))
 	_boss_room = _rooms[candidates[randi() % candidates.size()]] if not candidates.is_empty() else _rooms[far_fallback]
 
 func _carve_rect(r: Rect2i) -> void:
@@ -446,19 +452,31 @@ func _spawn_player() -> void:
 			torch.energy = 0.0
 
 func _spawn_boss() -> void:
-	_boss = EnemyScene.instantiate()
+	# 50/50: the classic dark-bear guardian (star spread + AoE slam) OR the Army Bear
+	# (keeps its distance, calls in airstrike clusters). Both read as the floor boss.
+	var use_army: bool = randf() < 0.5
+	_boss = (ArmyBearScene if use_army else EnemyScene).instantiate()
 	_boss.position = _room_center_world(_boss_room)
-	_boss_max_hp = ArpgState.boss_hp()
-	if "max_health" in _boss:
-		_boss.max_health = _boss_max_hp
-	_boss.set("is_boss", true)          # glowing white star spread + AoE slam
+	# The Army Bear kites at range, so it gets fewer chances to be hit — give it ~40%
+	# more HP so it's an actual fight instead of melting in a few seconds.
+	_boss_max_hp = int(round(ArpgState.boss_hp() * (1.4 if use_army else 1.0)))
+	_boss.set("is_boss", true)          # boss HP bar + huge stain + death explosion
 	if "touch_damage" in _boss:
 		_boss.touch_damage = 2
 	add_child(_boss)
+	# Set HP *after* add_child: critter-based bosses (Army Bear) run their _ready on
+	# add and reset max_health to their small crit_hp default — which made the Army
+	# Bear one-shot. Assigning here wins, and we refresh current health to full.
+	if "max_health" in _boss:
+		_boss.max_health = _boss_max_hp
+		_boss.health = _boss_max_hp
 	var rig := _boss.get_node_or_null("Rig") as Node2D
 	if rig != null:
-		rig.scale *= 1.8
-		rig.modulate = Color(1.25, 0.55, 0.55)
+		if use_army:
+			rig.scale *= 1.5            # already a big cutout — just bulk it up
+		else:
+			rig.scale *= 1.8
+			rig.modulate = Color(1.25, 0.55, 0.55)
 
 func _boss_is_dead() -> bool:
 	# A dying enemy leaves the "enemies" group at the START of its death anim
@@ -539,6 +557,7 @@ func _add_wall_torch(pos: Vector2, wall_body: Node = null, occ: LightOccluder2D 
 	lamp.texture_scale = 2.6     # double the wall-torch light range (was 1.3)
 	lamp.shadow_enabled = true   # other walls still block it laterally
 	lamp.shadow_filter = 1
+	lamp.add_to_group("venue_light")   # doused during a RUSH
 	add_child(lamp)
 	# Shadowless CORE glow pinned to the flame so the candle ALWAYS reads as a lit
 	# source — without this the neighbouring wall occluders carve the shadowed lamp
@@ -550,6 +569,7 @@ func _add_wall_torch(pos: Vector2, wall_body: Node = null, occ: LightOccluder2D 
 	core.energy = 0.85
 	core.texture_scale = (tile * 0.95) / float(LightTex.get_width())
 	core.shadow_enabled = false
+	core.add_to_group("venue_light")   # doused during a RUSH
 	add_child(core)
 	# real wall-torch sprite (bracket + flame), bottom anchored to the wall edge
 	var torch := Sprite2D.new()
@@ -621,6 +641,7 @@ func _spawn_braziers() -> void:
 		lamp.shadow_filter = 1          # PCF5 — cheaper than PCF13 (perf)
 		lamp.shadow_filter_smooth = 3.0
 		lamp.position = pos - Vector2(0, tile * 0.35)   # light at the flames
+		lamp.add_to_group("venue_light")   # doused during a RUSH so the invert reads clean
 		add_child(lamp)
 		# (No indirect "fill" — it bled through walls. The candelabra light is now
 		# shadow-cast only, so stone blocks it.)
@@ -802,10 +823,17 @@ var _wave_spawn_t: float = 0.0
 var _wave_started: bool = false
 var _wave_last_unlocked: int = 0
 var _event_t: float = 70.0   # countdown to the next themed RUSH event
+var _cluster_t: float = 22.0 # countdown to the next tight same-type CLUSTER charge
+const RUSH_DURATION: float = 15.0      # a RUSH lasts this long (screen inverted the whole time)
+var _rush_active_t: float = 0.0        # >0 while a rush is ongoing
+var _rush_spawn_t: float = 0.0         # cadence for sustained rush spawns
+var _rush_scene: PackedScene = null    # the one enemy type pouring in this rush
+var _invert_layer: CanvasLayer = null  # full-screen colour-invert overlay during a rush
 var _mm_redraw_t: float = 0.0   # minimap redraw throttle
 var _stats_sample_t: float = 0.0   # analytics alive-count sampler
 var _minimap_on: bool = true    # M toggles it (FPS A/B test)
 var _hud_time_tl: Label = null
+var _hud_time_total: Label = null   # total run time (all floors)
 var _hud_fps: Label = null
 var _fps_t: float = 0.0
 var _hud_time_br: Label = null
@@ -846,24 +874,129 @@ func _wave_tick(delta: float) -> void:
 	# Themed RUSH events — once the floor has ramped, every ~minute a horde of ONE
 	# enemy type pours in around you (a wall of teddy bombers, a swarm of long
 	# bears, etc.). The fun chaos beat.
-	if _wave_t > 40.0:
+	if _wave_t > 40.0 and _rush_active_t <= 0.0:
 		_event_t -= delta
 		if _event_t <= 0.0:
 			_event_t = randf_range(55.0, 85.0)
 			_trigger_rush_event()
+	# Active RUSH window: screen stays inverted and one enemy type keeps pouring in
+	# for ~15s, then the colours snap back. Pure timer — no "kill them all" gate.
+	if _rush_active_t > 0.0:
+		_rush_active_t -= delta
+		_rush_spawn_t -= delta
+		if _rush_spawn_t <= 0.0:
+			_rush_spawn_t = 1.2
+			_rush_spawn_wave()
+		if _rush_active_t <= 0.0:
+			_end_rush()
+	# Small CLUSTER charges — a tight triplet/quad of ONE enemy type rushes in as a
+	# clump. More frequent + smaller than a RUSH; a fun little "oh shit" pulse.
+	if _wave_t > 18.0:
+		_cluster_t -= delta
+		if _cluster_t <= 0.0:
+			_cluster_t = randf_range(16.0, 30.0)
+			_spawn_cluster()
 
 func _trigger_rush_event() -> void:
 	if not is_instance_valid(_player):
 		return
-	var scene: PackedScene = _wave_pick_scene()
-	var fn: String = scene.resource_path.get_file().get_basename()
+	_rush_scene = _wave_pick_scene()
+	_rush_active_t = RUSH_DURATION
+	_rush_spawn_t = 0.0
+	var fn: String = _rush_scene.resource_path.get_file().get_basename()
 	var nm: String = WAVE_NAMES.get(fn, fn.to_upper())
-	var n: int = clampi(int(round(7.0 * _wave_power())), 6, 13)
 	_flash_event("%s  RUSH!" % nm, Color(1.0, 0.55, 0.2))
 	Juice.shake(0.35)
-	# Spawn them in a ring around the player so they converge from all sides.
+	_start_invert()
+	# Opening ring so they converge from all sides immediately.
+	var n: int = clampi(int(round(7.0 * _wave_power())), 6, 13)
 	for i in n:
 		var pos: Vector2 = floor_point_near(_player.global_position, 460.0, 880.0)
+		_spawn_one(_rush_scene, pos)
+
+func _rush_spawn_wave() -> void:
+	# Sustained trickle of the rush enemy for the duration. Allows a bit over the
+	# normal cap so it feels like a real flood, but still bounded.
+	if _rush_scene == null or not is_instance_valid(_player):
+		return
+	var alive: int = get_tree().get_nodes_in_group("enemies").size()
+	var cap: int = int(round(float(_wave_alive_cap()) * 1.3))
+	if alive >= cap:
+		return
+	var n: int = mini(4, cap - alive)
+	for i in n:
+		var pos: Vector2 = floor_point_near(_player.global_position, 440.0, 900.0)
+		_spawn_one(_rush_scene, pos)
+
+func _set_venue_lights(on: bool) -> void:
+	# Candelabras + wall torches off during a rush — their warm glow fights the
+	# colour-invert and muddies it. Player torch + ambient stay on so you can see.
+	for l in get_tree().get_nodes_in_group("venue_light"):
+		if l is PointLight2D:
+			(l as PointLight2D).enabled = on
+
+func _start_invert() -> void:
+	if _invert_layer != null:
+		return
+	_set_venue_lights(false)
+	var sh := Shader.new()
+	sh.code = """
+shader_type canvas_item;
+uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
+uniform float amount : hint_range(0.0, 1.0) = 1.0;
+void fragment() {
+	vec4 c = texture(screen_tex, SCREEN_UV);
+	vec3 inv = vec3(1.0) - c.rgb;
+	COLOR = vec4(mix(c.rgb, inv, amount), 1.0);
+}
+"""
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	mat.set_shader_parameter("amount", 0.0)
+	_invert_layer = CanvasLayer.new()
+	_invert_layer.layer = 70                     # above the world/HUD, below the pause menu
+	add_child(_invert_layer)
+	var cr := ColorRect.new()
+	cr.material = mat
+	cr.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cr.size = get_viewport_rect().size
+	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_invert_layer.add_child(cr)
+	var tw := cr.create_tween()
+	tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("amount", v), 0.0, 1.0, 0.3)
+
+func _end_rush() -> void:
+	_rush_scene = null
+	_set_venue_lights(true)   # relight the candelabras + wall torches
+	if _invert_layer == null:
+		return
+	var layer := _invert_layer
+	_invert_layer = null
+	var cr := layer.get_child(0) as ColorRect
+	if cr != null and cr.material is ShaderMaterial:
+		var mat := cr.material as ShaderMaterial
+		var tw := cr.create_tween()
+		tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("amount", v), 1.0, 0.0, 0.4)
+		tw.tween_callback(layer.queue_free)
+	else:
+		layer.queue_free()
+
+func _spawn_cluster() -> void:
+	# A tight clump of 3-4 of the SAME enemy type, dropped together near the player
+	# so they converge as one little pack. Respects the alive cap so it never piles on
+	# top of an already-full room.
+	if not is_instance_valid(_player):
+		return
+	var alive: int = get_tree().get_nodes_in_group("enemies").size()
+	var n: int = 3 if randf() < 0.55 else 4
+	if alive + n > _wave_alive_cap():
+		return
+	var scene: PackedScene = _wave_pick_scene()
+	var center: Vector2 = floor_point_near(_player.global_position, 420.0, 780.0)
+	Juice.shake(0.18)
+	for i in n:
+		var off: Vector2 = Vector2.from_angle(randf() * TAU) * randf_range(8.0, 46.0)
+		var pos: Vector2 = floor_point_near(center + off, 0.0, 90.0)
 		_spawn_one(scene, pos)
 
 func _flash_event(text: String, color: Color) -> void:
@@ -1233,6 +1366,11 @@ func _process(delta: float) -> void:
 	if _hud_fps != null and _fps_t <= 0.0:
 		_fps_t = 0.25
 		_hud_fps.text = "%d fps" % int(round(Engine.get_frames_per_second()))
+	# Total run timer ticks continuously (not gated by the wave start, so it shows
+	# carried-over time the instant a new floor loads).
+	if _hud_time_total != null:
+		var rt: int = int(ArpgState.run_time)
+		_hud_time_total.text = "Σ %d:%02d" % [rt / 60, rt % 60]
 	if get_tree().paused:
 		return   # stats screen / popups paused us — don't run gameplay or waves
 	_wave_tick(delta)
@@ -1586,17 +1724,19 @@ func _toggle_stats() -> void:
 		_stats_layer.queue_free()
 		_stats_layer = null
 		get_tree().paused = false
-		process_mode = Node.PROCESS_MODE_INHERIT
 		return
-	# Full PAUSE while the character screen is open. The dungeon goes ALWAYS so its
-	# _input still fires (Tab/Esc close it); gameplay is gated by the paused guard
-	# in _process.
+	# Full PAUSE while the character screen is open. The dungeon stays PAUSABLE so
+	# gameplay (enemies/projectiles) actually freezes; an always-processing input
+	# catcher on the overlay handles TAB/ESC to close it (the paused dungeon can't).
 	get_tree().paused = true
-	process_mode = Node.PROCESS_MODE_ALWAYS
 	_stats_layer = CanvasLayer.new()
 	_stats_layer.layer = 94
 	_stats_layer.process_mode = Node.PROCESS_MODE_ALWAYS
 	add_child(_stats_layer)
+	var catcher := preload("res://scripts/stats_input_catcher.gd").new()
+	catcher.process_mode = Node.PROCESS_MODE_ALWAYS
+	catcher.set("target", self)
+	_stats_layer.add_child(catcher)
 	var dim := ColorRect.new()
 	dim.color = Color(0.0, 0.0, 0.04, 0.84)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -2494,7 +2634,7 @@ func _upgrade_preview(opt: Dictionary) -> String:
 		"w_level":    return "Weapon  Lv %d → %d" % [int(w.get("lvl", 1)), int(w.get("lvl", 1)) + 1]
 		"w_dmg":      return "Damage  %d → %d" % [cur_dmg, cur_dmg + 1]
 		"w_dmg2":     return "Damage  %d → %d" % [cur_dmg, cur_dmg + 2]
-		"dmg":        return "Damage  %d → %d" % [cur_dmg, int(ceil(float(w.get("dmg", 1)) * (ArpgState.dmg_mult + 0.10)))]
+		"dmg":        return "Damage  %d → %d" % [cur_dmg, int(ceil(float(w.get("dmg", 1)) * ArpgState.dmg_mult * 1.10)) + ArpgState.bonus_damage()]
 		"maxhp":      return "Max HP  +4"
 		"firerate":   return "Fire rate  +12%"
 		"w_firerate": return "Fire rate  +11%"
@@ -2523,7 +2663,7 @@ func _levelup_change(opt: Dictionary) -> Array:
 			return ["dmg", "%d" % int(ceil(float(nxt.get("dmg", 1)) * ArpgState.dmg_mult))]
 		"w_dmg":      return ["dmg", "%d" % (cur_dmg + 1)]
 		"w_dmg2":     return ["dmg", "%d" % (cur_dmg + 2)]
-		"dmg":        return ["dmg", "%d" % int(ceil(float(w.get("dmg", 1)) * (ArpgState.dmg_mult + 0.10)))]
+		"dmg":        return ["dmg", "%d" % (int(ceil(float(w.get("dmg", 1)) * ArpgState.dmg_mult * 1.10)) + ArpgState.bonus_damage())]
 		"firerate":   return ["rate", "%.2f/s" % (1.0 / maxf(0.06, ArpgState.weapon_cooldown() * 0.88))]
 		"w_firerate": return ["rate", "%.2f/s" % (1.0 / maxf(0.06, ArpgState.weapon_cooldown() * 0.9))]
 		"crit":       return ["crit", "%d%%" % int(minf(ArpgState.crit_chance + 0.07, 0.50) * 100.0)]
@@ -2583,10 +2723,15 @@ func _build_hud() -> void:
 	if has_ui_font:
 		_hud_toast.add_theme_font_override("font", ui_font)
 	# Run timer — top-left info panel (beside the level row) AND big bottom-right.
-	_hud_time_tl = _mk_label(layer, Vector2(196, 60), 18, Color(0.85, 0.9, 1.0))
+	_hud_time_tl = _mk_label(layer, Vector2(196, 52), 18, Color(0.85, 0.9, 1.0))
 	_hud_time_tl.text = "0:00"
 	if has_ui_font:
 		_hud_time_tl.add_theme_font_override("font", ui_font)
+	# Second line: TOTAL run time (across all floors), dimmer + smaller below the stage time.
+	_hud_time_total = _mk_label(layer, Vector2(196, 76), 14, Color(0.62, 0.7, 0.86))
+	_hud_time_total.text = "Σ 0:00"
+	if has_ui_font:
+		_hud_time_total.add_theme_font_override("font", ui_font)
 	# FPS counter — top-left corner, whole numbers.
 	_hud_fps = _mk_label(layer, Vector2(16, 14), 16, Color(0.55, 1.0, 0.65))
 	_hud_fps.text = "-- fps"

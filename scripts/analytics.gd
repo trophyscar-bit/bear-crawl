@@ -13,6 +13,19 @@ var _alive_n: int = 0
 
 func _ready() -> void:
 	_load()
+	# Make sure a run abandoned at app-close (alt-F4) still reports: the close
+	# handler folds it locally, but the async upload may not finish before quit —
+	# so re-send the last-known lifetime stats now, on the next launch. Deferred so
+	# the Telemetry autoload (loaded after Stats) has finished its own _ready first.
+	if not life.is_empty():
+		Telemetry.call_deferred("send", life)
+
+func _notification(what: int) -> void:
+	# Player alt-F4'd / closed the window mid-run — still count the partial run
+	# (floors reached, kills, etc.) as data instead of throwing it away.
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		if not run.is_empty():
+			end_run("abandoned")
 
 # ── run lifecycle ────────────────────────────────────────────────────────────
 func _blank_run() -> Dictionary:
@@ -24,6 +37,7 @@ func _blank_run() -> Dictionary:
 		"gold_gained": 0, "gold_spent": 0,
 		"fluff_gained": 0, "xp_gained": 0, "levels": 0,
 		"damage_taken": 0, "hits_taken": 0,
+		"kills_from_behind": 0, "kills_from_front": 0,   # back-shot (rear volley) vs normal kills
 		"weapons_dropped": {}, "weapons_by_rarity": {},
 		"upgrades_picked": {}, "shop_bought": {},
 		"mobs_spawned": {}, "mobs_killed": {},
@@ -36,6 +50,10 @@ func _blank_run() -> Dictionary:
 	}
 
 func start_run() -> void:
+	# If a previous run is still open (player quit to menu mid-run, then started a
+	# new one), finalize it as abandoned so its partial data isn't lost.
+	if not run.is_empty():
+		end_run("abandoned")
 	run = _blank_run()
 	_alive_sum = 0.0
 	_alive_n = 0
@@ -92,6 +110,15 @@ func enemy_killed_detail(t: String, ttk: float, hits: int, dmg: int, weapon: Str
 	e["dmg_sum"] = int(e["dmg_sum"]) + dmg
 	ed[t] = e
 
+func kill_facing(from_back: bool) -> void:
+	# Was the killing blow a Back Shot (rear-volley) projectile, or a normal shot?
+	# Lets us gauge how much of the kill load Back Shot carries → whether the rear
+	# volley should do reduced damage.
+	if from_back:
+		_add("kills_from_behind", 1)
+	else:
+		_add("kills_from_front", 1)
+
 func shop_bought(id: String, cost: int) -> void:
 	_inc("shop_bought", id); _add("gold_spent", cost)
 
@@ -135,7 +162,7 @@ func _merge_dict(dst: Dictionary, src: Dictionary) -> void:
 func _fold_into_life(r: Dictionary) -> void:
 	life["runs"] = int(life.get("runs", 0)) + 1
 	var T: Dictionary = life.get("totals", {})
-	for k in ["duration", "gold_gained", "gold_spent", "fluff_gained", "xp_gained", "levels", "damage_taken", "hits_taken", "floor_reached", "alive_peak"]:
+	for k in ["duration", "gold_gained", "gold_spent", "fluff_gained", "xp_gained", "levels", "damage_taken", "hits_taken", "floor_reached", "alive_peak", "kills_from_behind", "kills_from_front"]:
 		T[k] = float(T.get(k, 0.0)) + float(r.get(k, 0))
 	life["totals"] = T
 	life["best_floor"] = maxi(int(life.get("best_floor", 0)), int(r.get("floor_reached", 1)))

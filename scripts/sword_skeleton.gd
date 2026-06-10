@@ -40,8 +40,9 @@ func _ready() -> void:
 	touch_damage = 1
 	throws_stars = false
 	_stuffing_mult = 0.7   # skeletons get a 30%-smaller stuffing swoosh
-	shadow_abs_y = 56.0    # shadow at the skeleton's feet (its rig scale is large)
+	shadow_abs_y = 64.0    # shadow at the skeleton's feet — nudged a touch lower
 	shadow_abs_w = 60.0
+	shadow_abs_x = -12.0   # and a touch to the left
 	super._ready()
 	# Pin the shared HP bar just over his head (rig scale is large).
 	if is_instance_valid(_hpbar_bg):
@@ -162,8 +163,8 @@ func _process_death(delta: float) -> void:
 		if _death_fade >= 0.45:
 			queue_free()
 
-func take_damage(amount: int, crit: bool = false) -> void:
-	super.take_damage(amount, crit)
+func take_damage(amount: int, crit: bool = false, from_back: bool = false) -> void:
+	super.take_damage(amount, crit, from_back)
 	# Flinch — but not mid-swing (don't cancel a committed attack) and rate-limited.
 	if not _dying and not _attacking and _hurt_t <= 0.0:
 		_hurt_t = HURT_DURATION
