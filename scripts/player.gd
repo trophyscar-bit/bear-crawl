@@ -579,15 +579,25 @@ func on_room_entered() -> void:
 func add_pizza_bombs(n: int) -> void:
 	grant_special("bomb", n)
 
+# Robust PNG load — tries the imported resource (.ctex) FIRST, then the raw file.
+# Exported builds reimport pngs to .ctex and drop the raw png, so a FileAccess-only
+# load silently failed there (no hit blood / no drip trail in the real game).
+static func _robust_png(path: String) -> Texture2D:
+	if ResourceLoader.exists(path):
+		var t := load(path) as Texture2D
+		if t != null:
+			return t
+	if FileAccess.file_exists(path):
+		var b := FileAccess.get_file_as_bytes(path)
+		if b.size() > 0:
+			var img := Image.new()
+			if img.load_png_from_buffer(b) == OK:
+				return ImageTexture.create_from_image(img)
+	return null
+
 func _spawn_hit_stuffing(big: bool = false) -> void:
 	if _stuff_burst_tex == null:
-		var path := "res://assets/stuffing_hit.png"   # gif 3 — the player's hit puff
-		if FileAccess.file_exists(path):
-			var b := FileAccess.get_file_as_bytes(path)
-			if b.size() > 0:
-				var img := Image.new()
-				if img.load_png_from_buffer(b) == OK:
-					_stuff_burst_tex = ImageTexture.create_from_image(img)
+		_stuff_burst_tex = _robust_png("res://assets/stuffing_hit.png")   # gif 3 — the player's hit puff
 	if _stuff_burst_tex == null or not is_instance_valid(get_parent()):
 		return
 	# Normal hit = one puff. A blast (teddy bomb) = a dramatic spray of several
@@ -606,25 +616,19 @@ func _spawn_hit_stuffing(big: bool = false) -> void:
 		_spawn_hit_stain(big)
 
 func _spawn_drip() -> void:
-	# Small stuffing spot dropped at Rupert's feet while he's badly hurt (≤3 HP).
+	# Stuffing spot dropped at Rupert's feet while he's badly hurt (≤2 HP).
 	if _stuff_stain_tex == null:
-		var p := "res://assets/stuffing_stain%d.png" % (1 + randi() % 2)
-		if FileAccess.file_exists(p):
-			var b := FileAccess.get_file_as_bytes(p)
-			if b.size() > 0:
-				var img := Image.new()
-				if img.load_png_from_buffer(b) == OK:
-					_stuff_stain_tex = ImageTexture.create_from_image(img)
+		_stuff_stain_tex = _robust_png("res://assets/stuffing_stain%d.png" % (1 + randi() % 2))
 	if _stuff_stain_tex == null or not is_instance_valid(get_parent()):
 		return
 	var d := Sprite2D.new()
 	d.texture = _stuff_stain_tex
 	d.global_position = global_position + Vector2(randf_range(-6.0, 6.0), randf_range(2.0, 12.0))
 	d.rotation = randf() * TAU
-	d.scale = Vector2.ONE * randf_range(0.16, 0.30)   # small drips, not full splats
+	d.scale = Vector2.ONE * randf_range(0.4, 0.7)      # visible drips (was tiny)
 	d.z_index = -3                                     # on the floor, under entities
 	d.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-	d.modulate = Color(1, 1, 1, 0.8)
+	d.modulate = Color(1, 1, 1, 0.85)
 	get_parent().add_child(d)
 	var tw := d.create_tween()
 	tw.tween_interval(4.0)
@@ -633,13 +637,7 @@ func _spawn_drip() -> void:
 
 func _spawn_hit_stain(big: bool = false) -> void:
 	if _stuff_stain_tex == null:
-		var p := "res://assets/stuffing_stain%d.png" % (1 + randi() % 2)
-		if FileAccess.file_exists(p):
-			var b := FileAccess.get_file_as_bytes(p)
-			if b.size() > 0:
-				var img := Image.new()
-				if img.load_png_from_buffer(b) == OK:
-					_stuff_stain_tex = ImageTexture.create_from_image(img)
+		_stuff_stain_tex = _robust_png("res://assets/stuffing_stain%d.png" % (1 + randi() % 2))
 	if _stuff_stain_tex == null or not is_instance_valid(get_parent()):
 		return
 	var st := Sprite2D.new()

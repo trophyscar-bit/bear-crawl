@@ -153,6 +153,7 @@ const DEATH_FADE_DURATION: float = 1.1
 const AVOID_RADIUS: float = 95.0
 const AVOID_REPULSION: float = 0.6
 const AVOID_TANGENT: float = 1.2
+const WALL_AVOID_STRENGTH: float = 1.6   # proactive steering off solid wall cells
 
 const HAZARD_AVOID_RADIUS: float = 110.0
 const HAZARD_AVOID_REPULSION: float = 1.8
@@ -316,6 +317,27 @@ func _compute_avoidance(to_player: Vector2) -> Vector2:
 			if d < 4.0:
 				off2 = Vector2.RIGHT.rotated(randf() * TAU)
 			avoid += (off2 / max(d, 1.0)) * SEPARATION_REPULSION * s
+	# Wall avoidance — walls aren't in any avoidance group, so the swarm used to
+	# grind straight into them. Probe a few cells ahead via the dungeon's floor grid
+	# and steer toward the open side before we wedge against the stone.
+	var par := get_parent()
+	if par != null and par.has_method("floor_at_world") and to_player.length() > 1.0:
+		var fwd: Vector2 = to_player.normalized()
+		var probe: float = 52.0
+		# Only react to a wall DIRECTLY ahead (no diagonal probes — those made
+		# enemies hesitate in tight corridors). Slide toward whichever side is open.
+		if not par.floor_at_world(global_position + fwd * probe):
+			var tang: Vector2 = Vector2(-fwd.y, fwd.x)
+			var left_open: bool = par.floor_at_world(global_position + tang * probe)
+			var right_open: bool = par.floor_at_world(global_position - tang * probe)
+			if left_open and not right_open:
+				avoid += (tang * 1.4 - fwd * 0.4) * WALL_AVOID_STRENGTH
+			elif right_open and not left_open:
+				avoid += (-tang * 1.4 - fwd * 0.4) * WALL_AVOID_STRENGTH
+			elif left_open and right_open:
+				avoid += (tang if randf() < 0.5 else -tang) * WALL_AVOID_STRENGTH
+			else:
+				avoid += -fwd * WALL_AVOID_STRENGTH   # dead end — back off
 	return avoid
 
 func _physics_process(delta: float) -> void:

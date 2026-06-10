@@ -828,7 +828,6 @@ const RUSH_DURATION: float = 15.0      # a RUSH lasts this long (screen inverted
 var _rush_active_t: float = 0.0        # >0 while a rush is ongoing
 var _rush_spawn_t: float = 0.0         # cadence for sustained rush spawns
 var _rush_scene: PackedScene = null    # the one enemy type pouring in this rush
-var _invert_layer: CanvasLayer = null  # full-screen colour-invert overlay during a rush
 var _mm_redraw_t: float = 0.0   # minimap redraw throttle
 var _stats_sample_t: float = 0.0   # analytics alive-count sampler
 var _minimap_on: bool = true    # M toggles it (FPS A/B test)
@@ -874,13 +873,15 @@ func _wave_tick(delta: float) -> void:
 	# Themed RUSH events — once the floor has ramped, every ~minute a horde of ONE
 	# enemy type pours in around you (a wall of teddy bombers, a swarm of long
 	# bears, etc.). The fun chaos beat.
-	if _wave_t > 40.0 and _rush_active_t <= 0.0:
+	# No rush while a boss fight is live — the boss is enough chaos on its own.
+	var boss_fight: bool = _boss_alerted and not _boss_dead
+	if _wave_t > 40.0 and _rush_active_t <= 0.0 and not boss_fight:
 		_event_t -= delta
 		if _event_t <= 0.0:
 			_event_t = randf_range(55.0, 85.0)
 			_trigger_rush_event()
-	# Active RUSH window: screen stays inverted and one enemy type keeps pouring in
-	# for ~15s, then the colours snap back. Pure timer — no "kill them all" gate.
+	# Active RUSH window: lights stay doused and one enemy type keeps pouring in for
+	# ~15s, then the lights come back. Pure timer — no "kill them all" gate.
 	if _rush_active_t > 0.0:
 		_rush_active_t -= delta
 		_rush_spawn_t -= delta
@@ -907,7 +908,7 @@ func _trigger_rush_event() -> void:
 	var nm: String = WAVE_NAMES.get(fn, fn.to_upper())
 	_flash_event("%s  RUSH!" % nm, Color(1.0, 0.55, 0.2))
 	Juice.shake(0.35)
-	_start_invert()
+	_start_rush_fx()
 	# Opening ring so they converge from all sides immediately.
 	var n: int = clampi(int(round(7.0 * _wave_power())), 6, 13)
 	for i in n:
@@ -935,51 +936,15 @@ func _set_venue_lights(on: bool) -> void:
 		if l is PointLight2D:
 			(l as PointLight2D).enabled = on
 
-func _start_invert() -> void:
-	if _invert_layer != null:
-		return
+func _start_rush_fx() -> void:
+	# Rush signature: the candelabras + wall torches die out (player torch + ambient
+	# stay), so the floor goes tense and dim while the horde pours in. (The old
+	# full-screen colour invert was removed — it mangled the HUD and explosions.)
 	_set_venue_lights(false)
-	var sh := Shader.new()
-	sh.code = """
-shader_type canvas_item;
-uniform sampler2D screen_tex : hint_screen_texture, filter_linear_mipmap;
-uniform float amount : hint_range(0.0, 1.0) = 1.0;
-void fragment() {
-	vec4 c = texture(screen_tex, SCREEN_UV);
-	vec3 inv = vec3(1.0) - c.rgb;
-	COLOR = vec4(mix(c.rgb, inv, amount), 1.0);
-}
-"""
-	var mat := ShaderMaterial.new()
-	mat.shader = sh
-	mat.set_shader_parameter("amount", 0.0)
-	_invert_layer = CanvasLayer.new()
-	_invert_layer.layer = 70                     # above the world/HUD, below the pause menu
-	add_child(_invert_layer)
-	var cr := ColorRect.new()
-	cr.material = mat
-	cr.set_anchors_preset(Control.PRESET_FULL_RECT)
-	cr.size = get_viewport_rect().size
-	cr.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_invert_layer.add_child(cr)
-	var tw := cr.create_tween()
-	tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("amount", v), 0.0, 1.0, 0.3)
 
 func _end_rush() -> void:
 	_rush_scene = null
 	_set_venue_lights(true)   # relight the candelabras + wall torches
-	if _invert_layer == null:
-		return
-	var layer := _invert_layer
-	_invert_layer = null
-	var cr := layer.get_child(0) as ColorRect
-	if cr != null and cr.material is ShaderMaterial:
-		var mat := cr.material as ShaderMaterial
-		var tw := cr.create_tween()
-		tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("amount", v), 1.0, 0.0, 0.4)
-		tw.tween_callback(layer.queue_free)
-	else:
-		layer.queue_free()
 
 func _spawn_cluster() -> void:
 	# A tight clump of 3-4 of the SAME enemy type, dropped together near the player
