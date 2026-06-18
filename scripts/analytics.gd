@@ -5,6 +5,7 @@ extends Node
 # written to user://analytics.json. Read it back with report().
 
 const SAVE_PATH := "user://analytics.json"
+const INFLIGHT_PATH := "user://run_inflight.json"   # current run, re-written each heartbeat → crash recovery
 
 var run: Dictionary = {}     # current run
 var life: Dictionary = {}    # lifetime aggregate (persisted)
@@ -13,12 +14,24 @@ var _alive_n: int = 0
 
 func _ready() -> void:
 	_load()
-	# Make sure a run abandoned at app-close (alt-F4) still reports: the close
-	# handler folds it locally, but the async upload may not finish before quit —
-	# so re-send the last-known lifetime stats now, on the next launch. Deferred so
-	# the Telemetry autoload (loaded after Stats) has finished its own _ready first.
+	# If a run was still in-flight when the game died last time (hard crash — no
+	# clean close), recover it now, flagged as a partial/crashed run so analytics
+	# can discount it.
+	_recover_crash()
+	# Make sure a run abandoned at app-close (alt-F4) — or the crash recovered above —
+	# still reports: the close handler folds it locally, but the async upload may not
+	# finish before quit, so re-send the last-known lifetime stats now, on next launch.
+	# Deferred so the Telemetry autoload (loaded after Stats) has finished its _ready.
 	if not life.is_empty():
 		Telemetry.call_deferred("send", life)
+	# Heartbeat: while a run is active, upload a LIVE snapshot (lifetime + the
+	# in-progress run) every 60s — so a run is watchable as it happens and survives a
+	# crash. Throttled server-side by Telemetry's 30s MIN_INTERVAL.
+	var hb := Timer.new()
+	hb.wait_time = 60.0
+	hb.autostart = true
+	hb.timeout.connect(_heartbeat)
+	add_child(hb)
 
 func _notification(what: int) -> void:
 	# Player alt-F4'd / closed the window mid-run — still count the partial run
@@ -57,6 +70,7 @@ func start_run() -> void:
 	run = _blank_run()
 	_alive_sum = 0.0
 	_alive_n = 0
+	_save_inflight()   # mark a run active immediately, so even an early crash is recoverable
 
 func end_run(outcome: String) -> void:
 	if run.is_empty():
@@ -66,6 +80,7 @@ func end_run(outcome: String) -> void:
 	run["alive_avg"] = (_alive_sum / float(maxi(1, _alive_n)))
 	_fold_into_life(run)
 	_save()
+	_clear_inflight()   # clean end → no crash recovery needed for this run
 	Telemetry.send(life)   # anonymous upload (no-op unless an endpoint is configured)
 	print("[Stats] run ended (%s) — floor %d, %.0fs, %d gold, %d levels, %d dmg taken" % [
 		outcome, int(run["floor_reached"]), float(run["duration"]),
@@ -160,38 +175,102 @@ func _merge_dict(dst: Dictionary, src: Dictionary) -> void:
 		dst[k] = int(dst.get(k, 0)) + int(src[k])
 
 func _fold_into_life(r: Dictionary) -> void:
-	life["runs"] = int(life.get("runs", 0)) + 1
-	var T: Dictionary = life.get("totals", {})
+	_fold_run_into(life, r)
+
+# Fold a run record into an aggregate dict L. Used for the persisted lifetime AND for
+# throwaway live snapshots, so a 60s heartbeat never mutates the real `life`.
+func _fold_run_into(L: Dictionary, r: Dictionary) -> void:
+	L["runs"] = int(L.get("runs", 0)) + 1
+	var T: Dictionary = L.get("totals", {})
 	for k in ["duration", "gold_gained", "gold_spent", "fluff_gained", "xp_gained", "levels", "damage_taken", "hits_taken", "floor_reached", "alive_peak", "kills_from_behind", "kills_from_front"]:
 		T[k] = float(T.get(k, 0.0)) + float(r.get(k, 0))
-	life["totals"] = T
-	life["best_floor"] = maxi(int(life.get("best_floor", 0)), int(r.get("floor_reached", 1)))
-	var oc: Dictionary = life.get("outcomes", {})
+	L["totals"] = T
+	L["best_floor"] = maxi(int(L.get("best_floor", 0)), int(r.get("floor_reached", 1)))
+	var oc: Dictionary = L.get("outcomes", {})
 	oc[String(r["outcome"])] = int(oc.get(String(r["outcome"]), 0)) + 1
-	life["outcomes"] = oc
+	L["outcomes"] = oc
 	for d in ["weapons_dropped", "weapons_by_rarity", "upgrades_picked", "shop_bought", "mobs_spawned", "mobs_killed", "damage_sources", "kills_by_weapon", "weapon_equips"]:
-		var dst: Dictionary = life.get(d, {})
+		var dst: Dictionary = L.get(d, {})
 		_merge_dict(dst, r.get(d, {}))
-		life[d] = dst
+		L[d] = dst
 	# nested enemy detail (count/ttk/hits/dmg per type)
-	var led: Dictionary = life.get("enemy_detail", {})
+	var led: Dictionary = L.get("enemy_detail", {})
 	for t in (r.get("enemy_detail", {}) as Dictionary).keys():
 		var dd: Dictionary = led.get(t, {"count": 0, "ttk_sum": 0.0, "hits_sum": 0, "dmg_sum": 0})
 		var src: Dictionary = r["enemy_detail"][t]
 		for k in src.keys():
 			dd[k] = float(dd.get(k, 0)) + float(src[k])
 		led[t] = dd
-	life["enemy_detail"] = led
+	L["enemy_detail"] = led
 	# per-run history (capped) for trend charts
-	var hist: Array = life.get("history", [])
+	var hist: Array = L.get("history", [])
+	var _enemies_n: int = 0
+	for v in (r.get("mobs_spawned", {}) as Dictionary).values():
+		_enemies_n += int(v)
 	hist.append({
-		"outcome": r["outcome"], "floor": int(r["floor_reached"]), "duration": float(r["duration"]),
-		"gold": int(r["gold_gained"]), "levels": int(r["levels"]), "dmg": int(r["damage_taken"]),
-		"alive_peak": int(r["alive_peak"]), "picks": r.get("pick_order", []),
+		"outcome": r["outcome"], "floor": int(r.get("floor_reached", 1)), "duration": float(r.get("duration", 0.0)),
+		"gold": int(r.get("gold_gained", 0)), "levels": int(r.get("levels", 0)), "dmg": int(r.get("damage_taken", 0)),
+		"alive_peak": int(r.get("alive_peak", 0)), "picks": r.get("pick_order", []),
+		"partial": bool(r.get("partial", false)),
+		"hits": int(r.get("hits_taken", 0)),
+		"enemies": _enemies_n,
 	})
 	if hist.size() > 400:
 		hist = hist.slice(hist.size() - 400)
-	life["history"] = hist
+	L["history"] = hist
+
+# ── heartbeat + crash recovery ───────────────────────────────────────────────
+func _live_run_record() -> Dictionary:
+	# A snapshot of the active run with up-to-the-second duration/alive figures.
+	var r: Dictionary = run.duplicate(true)
+	r["duration"] = float(Time.get_ticks_msec() - int(run.get("t_start", Time.get_ticks_msec()))) / 1000.0
+	r["alive_avg"] = (_alive_sum / float(maxi(1, _alive_n)))
+	return r
+
+func _heartbeat() -> void:
+	if run.is_empty():
+		return
+	_save_inflight()
+	# Build life + current run as an "in_progress" snapshot WITHOUT touching `life`.
+	var snap: Dictionary = life.duplicate(true)
+	var r: Dictionary = _live_run_record()
+	r["outcome"] = "in_progress"
+	r["partial"] = true
+	_fold_run_into(snap, r)
+	snap["live"] = true   # marks this upload as a live, not-yet-final run
+	Telemetry.send(snap)
+
+func _save_inflight() -> void:
+	if run.is_empty():
+		return
+	var f := FileAccess.open(INFLIGHT_PATH, FileAccess.WRITE)
+	if f != null:
+		f.store_string(JSON.stringify(_live_run_record()))
+		f.close()
+
+func _clear_inflight() -> void:
+	if FileAccess.file_exists(INFLIGHT_PATH):
+		var d := DirAccess.open("user://")
+		if d != null:
+			d.remove("run_inflight.json")
+
+func _recover_crash() -> void:
+	if not FileAccess.file_exists(INFLIGHT_PATH):
+		return
+	var f := FileAccess.open(INFLIGHT_PATH, FileAccess.READ)
+	var parsed: Variant = null
+	if f != null:
+		parsed = JSON.parse_string(f.get_as_text())
+		f.close()
+	_clear_inflight()
+	if parsed is Dictionary and not (parsed as Dictionary).is_empty():
+		var r: Dictionary = parsed
+		r["outcome"] = "crashed"      # distinct outcome bucket
+		r["partial"] = true           # flagged so analytics can discount it
+		_fold_into_life(r)
+		_save()
+		print("[Stats] recovered a crashed run — floor %d, %.0fs (flagged partial)" % [
+			int(r.get("floor_reached", 1)), float(r.get("duration", 0.0))])
 
 func reset_lifetime() -> void:
 	life = {}
