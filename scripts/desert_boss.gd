@@ -13,7 +13,7 @@ const BrownLegsTexture := preload("res://assets/brown_legs.png")
 const StuffingTexture := preload("res://assets/stuffing.png")
 
 @export var speed: float = 85.0
-@export var max_health: int = 114
+@export var max_health: int = 76   # leaner than the v1 desert boss — still 2 phases, less of a sponge
 @export var touch_damage: int = 2
 @export var charge_speed: float = 684.0    # was 760 — additional 10% cut per user
 @export var charge_duration: float = 1.35   # was 0.95 — travels far enough to read
@@ -56,6 +56,16 @@ var _charge_dir: Vector2 = Vector2.RIGHT
 var _charge_timer: float = 0.0
 var _charge_cd_timer: float = 0.0
 var _summon_timer: float = 0.0
+# Anti-trap: if the chase grinds against a wall (player has walled us off) for a beat,
+# blink to a clear floor spot near them so we can't be permanently trapped in geometry.
+var _antistuck_t: float = 0.0
+var _antistuck_pos: Vector2 = Vector2.ZERO
+var _blocked_accum: float = 0.0
+# A* pathing (same grid the trash mobs use) so the chase ROUTES AROUND walls instead of
+# beelining into them. Only the slow chase paths; the dash stays a straight line.
+var _nav_path: PackedVector2Array = PackedVector2Array()
+var _nav_idx: int = 0
+var _repath_t: float = 0.0
 
 var _dying: bool = false
 var _death_time: float = 0.0
@@ -63,8 +73,12 @@ var _death_origin: Vector2 = Vector2.ZERO
 
 func _ready() -> void:
 	add_to_group("enemies")
+	# Enemy layer 3 so the player slips through instead of gluing to us. Our mask still
+	# hits the player's layer, so the slide-collision touch damage keeps working.
+	set_collision_layer_value(1, false)
+	set_collision_layer_value(3, true)
 	if GameSettings.difficulty == GameSettings.Difficulty.EASY:
-		max_health = 80
+		max_health = 56
 		charge_cooldown = 2.0
 	# Hard mode: ads were oppressive on the final boss; slow further still.
 	elif GameSettings.difficulty == GameSettings.Difficulty.HARD:
@@ -81,6 +95,7 @@ func _ready() -> void:
 		"OK" if is_instance_valid(player) else "MISSING"
 	])
 	_slam_timer = 3.0  # initial delay before first slam
+	_antistuck_pos = global_position
 
 func _physics_process(delta: float) -> void:
 	if _dying:
@@ -97,16 +112,36 @@ func _physics_process(delta: float) -> void:
 
 	match charge_state:
 		ChargeState.IDLE:
-			# Anti-grind: back off post-touch, orbit when too close, else chase.
-			var chase_dir: Vector2 = to_player.normalized()
+			# Anti-grind: back off post-touch, orbit when too close, else PATH toward the
+			# player AROUND walls (A* waypoints) instead of beelining into geometry.
+			var chase_dir: Vector2
 			if _backoff_time > 0.0:
 				_backoff_time -= delta
-				chase_dir = -chase_dir
+				chase_dir = -to_player.normalized()
 			elif to_player.length() < DESERT_PERSONAL_SPACE:
-				var tang: Vector2 = Vector2(-chase_dir.y, chase_dir.x) * float(_orbit_sign)
-				chase_dir = (chase_dir * 0.15 + tang * 0.85).normalized()
+				var base_dir: Vector2 = to_player.normalized()
+				var tang: Vector2 = Vector2(-base_dir.y, base_dir.x) * float(_orbit_sign)
+				chase_dir = (base_dir * 0.15 + tang * 0.85).normalized()
+			else:
+				var wp: Vector2 = _boss_path_target(delta)
+				chase_dir = (wp - global_position).normalized()
 			velocity = chase_dir * speed * _slow_factor()
 			move_and_slide()
+			# Anti-trap: sample headway every 0.5s. If we're barely moving while the player
+			# is out of melee range (walled off), count it; after ~1.2s blink to a clear,
+			# in-sight floor spot near them so we can't be cheesed against geometry.
+			_antistuck_t += delta
+			if _antistuck_t >= 0.5:
+				var moved: float = global_position.distance_to(_antistuck_pos)
+				if moved < speed * 0.5 * 0.3 and to_player.length() > DESERT_PERSONAL_SPACE * 1.2:
+					_blocked_accum += 0.5
+					if _blocked_accum >= 1.2:
+						_blink_unstuck()
+						_blocked_accum = 0.0
+				else:
+					_blocked_accum = 0.0
+				_antistuck_pos = global_position
+				_antistuck_t = 0.0
 			_charge_cd_timer -= delta
 			if _charge_cd_timer <= 0.0 and to_player.length() > 80.0:
 				charge_state = ChargeState.TELEGRAPH
@@ -148,6 +183,8 @@ func _physics_process(delta: float) -> void:
 				var c := col.get_collider()
 				if c and c.is_in_group("player") and c.has_method("take_damage"):
 					c.take_damage(touch_damage)
+					if c.has_method("knockback"):
+						c.knockback(_charge_dir, 1150.0)   # the rush LAUNCHES you across the room
 					_charge_timer = 0.0
 					break
 			if _charge_timer <= 0.0:
@@ -228,6 +265,8 @@ func _summon_add() -> void:
 		# scrappier than a regular bear — faster, fewer HP
 		e.speed = 130.0
 		e.max_health = 1   # one-shot kill per user req
+		e.set("mob_type", "desert_add")
+		Stats.mob_spawned("desert_add")
 		parent.add_child(e)
 
 const FireTrailScene := preload("res://scenes/fire_trail.tscn")
@@ -286,6 +325,44 @@ func _spawn_smoke_puff(forward: Vector2) -> void:
 	(ex as Node).set("duration", 0.55)
 	(ex as CanvasItem).modulate = Color(0.78, 0.78, 0.82, 0.85)
 	get_parent().add_child(ex)
+
+func _blink_unstuck() -> void:
+	# Trapped against a wall → puff out and reappear on a clear, in-sight floor tile near
+	# the player. floor_point_near guarantees a real room cell with line of sight.
+	if not is_instance_valid(player):
+		return
+	var par := get_parent()
+	if par == null or not par.has_method("floor_point_near"):
+		return
+	var dest: Vector2 = par.call("floor_point_near", player.global_position, 150.0, 320.0, true)
+	if dest == Vector2.ZERO:
+		return
+	_spawn_smoke_puff(Vector2.RIGHT)        # puff at the old (trapped) spot
+	global_position = dest
+	_spawn_smoke_puff(Vector2.LEFT)         # puff at the new spot
+	# reset chase cadence so it doesn't instantly re-charge from the new position
+	_charge_cd_timer = maxf(_charge_cd_timer, 0.6)
+	_antistuck_pos = global_position
+
+func _boss_path_target(delta: float) -> Vector2:
+	# Re-query an A* path to the player every 0.5s and steer toward the current waypoint,
+	# so the boss rounds corners instead of pressing into the wall between us.
+	if not is_instance_valid(player):
+		return global_position
+	_repath_t -= delta
+	if _repath_t <= 0.0 or _nav_path.is_empty():
+		_repath_t = 0.5
+		var nav := get_parent()
+		if nav != null and nav.has_method("nav_path"):
+			_nav_path = nav.call("nav_path", global_position, player.global_position)
+			_nav_idx = 0
+	if _nav_path.is_empty():
+		return player.global_position
+	while _nav_idx < _nav_path.size() and global_position.distance_to(_nav_path[_nav_idx]) < 44.0:
+		_nav_idx += 1
+	if _nav_idx >= _nav_path.size():
+		return player.global_position
+	return _nav_path[_nav_idx]
 
 func _slow_factor() -> float:
 	for s in get_tree().get_nodes_in_group("slow_zones"):
@@ -374,6 +451,7 @@ func _begin_death() -> void:
 	_dying = true
 	remove_from_group("enemies")
 	set_collision_layer_value(1, false)
+	set_collision_layer_value(3, false)   # clear enemy layer so the corpse can't eat pizzas
 	set_collision_mask_value(1, false)
 	velocity = Vector2.ZERO
 	_death_origin = position
@@ -391,10 +469,7 @@ func _begin_death() -> void:
 	# Chain-explode any adds still alive in the room — they go up with the
 	# boss but deal damage to the player if they're close. Door opens after.
 	_chain_explode_remaining_ads()
-	if _player_needs_health():
-		var heal_drop := FullHealScene.instantiate()
-		heal_drop.global_position = global_position
-		get_parent().add_child(heal_drop)
+	# (no health-pickup drop on death — removed per user req)
 	var p := get_tree().get_first_node_in_group("player")
 	if p and p.has_method("shake"):
 		p.shake(28.0, 0.55)
