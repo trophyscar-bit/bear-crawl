@@ -271,7 +271,15 @@ func _start_download() -> void:
 	_busy = true
 	_mode = "download"
 	_downloading = true
-	_download_path = OS.get_executable_path().get_base_dir().path_join("BEAR_GAME_update.exe")
+	# Download into a LOCAL temp dir, NEVER a OneDrive-synced folder. Writing the
+	# ~100 MB exe straight into the OneDrive Desktop was getting truncated mid-write
+	# by OneDrive sync (~29 MB), which then failed the size gate and looped the
+	# updater on every launch. We move the finished file to the exe path in _apply_update.
+	var tmp_dir := OS.get_cache_dir()
+	if tmp_dir == "" or not DirAccess.dir_exists_absolute(tmp_dir):
+		tmp_dir = OS.get_executable_path().get_base_dir()
+	_download_path = tmp_dir.path_join("BEAR_GAME_update.exe")
+	_http.timeout = 0   # a big exe on a slow link can take a while — never time out mid-download
 	_http.download_file = _download_path
 	if _http.request(_exe_url, PackedStringArray(["User-Agent: bear-crawl-updater"])) != OK:
 		_busy = false
