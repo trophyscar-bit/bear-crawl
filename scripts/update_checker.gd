@@ -286,41 +286,44 @@ func _apply_update() -> void:
 		_bar_fill.size.x = _bar_w
 	var exe := OS.get_executable_path()
 	var dir := exe.get_base_dir()
-	var name := exe.get_file()                        # e.g. BEAR_GAME.exe
-	var old_name := name.get_basename() + "_old.exe"  # BEAR_GAME_old.exe
-	var old_full := dir.path_join(old_name)
 	var log := dir.path_join("_bearcrawl_update.log")
 	var bat := dir.path_join("_bearcrawl_update.bat")
-	# Godot returns FORWARD-slash paths; Windows ren/move/start need BACKSLASHES or
-	# every command fails with "the system cannot find the path specified" (and the
-	# swap silently never happens). Convert for the batch body.
+	# Godot returns FORWARD-slash paths; Windows move/start need BACKSLASHES or every
+	# command fails with "the system cannot find the path specified" and the swap
+	# silently never happens. Convert for the batch body.
 	var exe_w := exe.replace("/", "\\")
-	var old_w := old_full.replace("/", "\\")
 	var dl_w := _download_path.replace("/", "\\")
 	var log_w := log.replace("/", "\\")
 	var bat_w := bat.replace("/", "\\")
 	var q := "\""
-	# Windows lets you RENAME a running .exe even though it can't be OVERWRITTEN — so
-	# rename the live exe aside, drop the new build into its place, then relaunch. The
-	# move retries until the process exits and releases the lock; restores on failure.
+	# We QUIT the game right after spawning this, so the exe lock releases within a
+	# second or two — then we can OVERWRITE it in place with `move /y`. This is far
+	# more robust than the old rename-aside dance, which silently failed whenever a
+	# stale "_old.exe" was still locked (AV scan / OneDrive sync holding the 400 MB
+	# file), leaving the OLD build to relaunch and re-trigger the update → loop.
+	# Retries for ~60 s to ride out transient AV / OneDrive locks, logging each step
+	# so a persistent failure is diagnosable (see _bearcrawl_update.log next to exe).
 	var s := "@echo off\r\n"
-	s += "echo Bear Crawl updater > " + q + log_w + q + "\r\n"
-	s += "del /f /q " + q + old_w + q + " >nul 2>&1\r\n"
-	s += "timeout /t 1 /nobreak >nul\r\n"
-	s += "ren " + q + exe_w + q + " " + q + old_name + q + " >> " + q + log_w + q + " 2>&1\r\n"
+	s += "> " + q + log_w + q + " echo [updater] start %DATE% %TIME%\r\n"
+	s += ">> " + q + log_w + q + " echo [updater] target: " + exe_w + "\r\n"
 	s += "set tries=0\r\n"
-	s += ":movetry\r\n"
+	s += ":retry\r\n"
 	s += "move /y " + q + dl_w + q + " " + q + exe_w + q + " >> " + q + log_w + q + " 2>&1\r\n"
-	s += "if not exist " + q + dl_w + q + " goto launch\r\n"
+	s += "if not exist " + q + dl_w + q + " goto ok\r\n"
 	s += "set /a tries+=1\r\n"
-	s += "if %tries% geq 30 goto launch\r\n"
+	s += ">> " + q + log_w + q + " echo [updater] exe locked, retry %tries%\r\n"
+	s += "if %tries% geq 60 goto fail\r\n"
 	s += "timeout /t 1 /nobreak >nul\r\n"
-	s += "goto movetry\r\n"
-	s += ":launch\r\n"
-	s += "if not exist " + q + exe_w + q + " ren " + q + old_w + q + " " + q + name + q + "\r\n"
+	s += "goto retry\r\n"
+	s += ":ok\r\n"
+	s += ">> " + q + log_w + q + " echo [updater] swap OK after %tries% retries\r\n"
 	s += "start " + q + q + " " + q + exe_w + q + "\r\n"
-	s += "del /f /q " + q + old_w + q + " >nul 2>&1\r\n"
-	s += "del /f /q " + q + bat_w + q + "\r\n"
+	s += "goto done\r\n"
+	s += ":fail\r\n"
+	s += ">> " + q + log_w + q + " echo [updater] FAILED after %tries% retries - relaunching current build\r\n"
+	s += "start " + q + q + " " + q + exe_w + q + "\r\n"
+	s += ":done\r\n"
+	s += "del /f /q " + q + bat_w + q + " >nul 2>&1\r\n"
 	var f := FileAccess.open(bat, FileAccess.WRITE)
 	if f == null:
 		_close_overlay()
