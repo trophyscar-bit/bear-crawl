@@ -3,6 +3,8 @@ extends CharacterBody2D
 const PizzaScene := preload("res://scenes/pizza.tscn")
 const ExplosionScene := preload("res://scenes/explosion.tscn")
 const FullHealScene := preload("res://scenes/full_heal.tscn")
+const SilhouetteShader := preload("res://shaders/silhouette.gdshader")
+const OutlineShader := preload("res://shaders/outline.gdshader")
 const BodyChunkScene := preload("res://scenes/body_chunk.tscn")
 const GroundSlamScene := preload("res://scenes/ground_slam.tscn")
 const CleaveMawScene := preload("res://scenes/cleave_maw.tscn")
@@ -66,6 +68,12 @@ const RAINBOW_SPEED: float = 1.3
 
 func _ready() -> void:
 	add_to_group("enemies")
+	# Live on enemy layer 3 (not 1) so the player passes THROUGH us instead of getting
+	# glued/wedged — same as the trash mobs. Touch damage is distance-based, so this is
+	# safe. (Without this, the player still stuck to this boss in the dungeon.)
+	set_collision_layer_value(1, false)
+	set_collision_layer_value(3, true)
+	_apply_silhouette()
 	# Easy-mode boss is squishier and throws less often.
 	if GameSettings.difficulty == GameSettings.Difficulty.EASY:
 		max_health = 22
@@ -79,6 +87,49 @@ func _ready() -> void:
 	player = get_tree().get_first_node_in_group("player")
 	_slam_timer = randf_range(3.0, slam_cooldown)
 	_orbit_sign = -1 if randf() < 0.5 else 1
+
+var _nav_path: PackedVector2Array = PackedVector2Array()
+var _nav_idx: int = 0
+var _repath_t: float = 0.0
+# Anti-stuck: if the boss can't make headway toward the player (wedged in a wall /
+# too big for a doorway) for ~1.2s, blink it to a clear floor spot near the player.
+var _antistuck_t: float = 0.0
+var _antistuck_pos: Vector2 = Vector2.ZERO
+var _blocked_accum: float = 0.0
+
+func _blink_unstuck() -> void:
+	# Wedged against geometry → reappear on a clear, in-sight floor cell near the player.
+	if not is_instance_valid(player):
+		return
+	var par := get_parent()
+	if par == null or not par.has_method("floor_point_near"):
+		return
+	var dest: Vector2 = par.call("floor_point_near", player.global_position, 160.0, 340.0, true)
+	if dest == Vector2.ZERO:
+		return
+	global_position = dest
+	_antistuck_pos = global_position
+	_nav_path = PackedVector2Array()   # force a fresh A* path from the new spot
+
+func _boss_path_target(delta: float) -> Vector2:
+	# A* path to the player (the grid the trash mobs use) so the chase ROUTES AROUND walls
+	# instead of beelining into them; re-queried every 0.5s.
+	if not is_instance_valid(player):
+		return global_position
+	_repath_t -= delta
+	if _repath_t <= 0.0 or _nav_path.is_empty():
+		_repath_t = 0.5
+		var nav := get_parent()
+		if nav != null and nav.has_method("nav_path"):
+			_nav_path = nav.call("nav_path", global_position, player.global_position)
+			_nav_idx = 0
+	if _nav_path.is_empty():
+		return player.global_position
+	while _nav_idx < _nav_path.size() and global_position.distance_to(_nav_path[_nav_idx]) < 44.0:
+		_nav_idx += 1
+	if _nav_idx >= _nav_path.size():
+		return player.global_position
+	return _nav_path[_nav_idx]
 
 func _physics_process(delta: float) -> void:
 	if _dying:
@@ -98,6 +149,10 @@ func _physics_process(delta: float) -> void:
 	elif to_player.length() < BOSS_PERSONAL_SPACE:
 		var tang: Vector2 = Vector2(-desired.y, desired.x) * float(_orbit_sign)
 		desired = (desired * 0.15 + tang * 0.85).normalized()
+	else:
+		# Far chase: follow A* waypoints around walls instead of beelining.
+		var wp: Vector2 = _boss_path_target(delta)
+		desired = (wp - global_position).normalized()
 	var avoid: Vector2 = Vector2.ZERO
 	for obs in get_tree().get_nodes_in_group("obstacles"):
 		if obs is Node2D:
@@ -114,12 +169,26 @@ func _physics_process(delta: float) -> void:
 	velocity = steer * speed * _slow_factor()
 	move_and_slide()
 
+	# Anti-stuck: sample headway every 0.5s. If barely moving while the player is out
+	# of melee range (walled off / too big for the door), blink to a clear in-sight
+	# floor spot near them after ~1.2s so the boss can never be permanently wall-stuck.
+	_antistuck_t += delta
+	if _antistuck_t >= 0.5:
+		var moved: float = global_position.distance_to(_antistuck_pos)
+		if moved < speed * 0.5 * 0.3 and to_player.length() > BOSS_PERSONAL_SPACE * 1.2:
+			_blocked_accum += 0.5
+			if _blocked_accum >= 1.2:
+				_blink_unstuck()
+				_blocked_accum = 0.0
+		else:
+			_blocked_accum = 0.0
+		_antistuck_pos = global_position
+		_antistuck_t = 0.0
+
 	var rig := get_node_or_null("Rig")
 	if rig and absf(to_player.x) > 1.0:
 		rig.scale.x = absf(rig.scale.x) * (1 if to_player.x > 0 else -1)
-	if rig:
-		_rainbow_t += delta * RAINBOW_SPEED
-		(rig as Node2D).modulate = Color.from_hsv(fposmod(_rainbow_t, 1.0), 1.0, 1.0)
+	# (Removed the constant rainbow-cycling modulate — the boss no longer flashes.)
 
 	if damage_cooldown > 0.0:
 		damage_cooldown -= delta
@@ -295,10 +364,22 @@ func _clear_hit_flash() -> void:
 	if is_instance_valid(self) and not _dying:
 		modulate = Color(1, 1, 1)
 
+func _apply_silhouette() -> void:
+	# The Rig is a CanvasGroup, so Body+Legs are composited into ONE image first; applying
+	# the silhouette shader to the GROUP gives a single smooth silhouette with one outline —
+	# no seam line between the two sprites (the old per-sprite version double-outlined the waist).
+	# The alpha-dilation shaders (silhouette/outline) fill the whole CanvasGroup buffer as a
+	# solid box, so we DON'T use them — the Rig is a plain Node2D rendering the real bear art
+	# (boss_upper + boss_legs = the suited dark bear), which reads clearly on its own.
+	var rig := get_node_or_null("Rig") as CanvasItem
+	if rig != null:
+		rig.material = null
+
 func _begin_death() -> void:
 	_dying = true
 	remove_from_group("enemies")
 	set_collision_layer_value(1, false)
+	set_collision_layer_value(3, false)   # we live on layer 3 now — clear it so the corpse can't eat pizzas
 	set_collision_mask_value(1, false)
 	velocity = Vector2.ZERO
 	_death_origin = position
@@ -324,11 +405,7 @@ func _begin_death() -> void:
 	get_parent().add_child(ex)
 	# Body bursts into chunks flying outward
 	_spawn_body_chunks()
-	# Drop a full-heal pickup — but only if the player actually needs it
-	if _player_needs_health():
-		var heal_drop := FullHealScene.instantiate()
-		heal_drop.global_position = global_position
-		get_parent().add_child(heal_drop)
+	# (Removed the full-heal pickup drop — its old-school sprite looked bad.)
 	# Camera shake via player
 	var p := get_tree().get_first_node_in_group("player")
 	if p and p.has_method("shake"):
