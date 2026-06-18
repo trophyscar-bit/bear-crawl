@@ -55,6 +55,7 @@ const PIZZA_PEPPERONI: Color = Color(0.82, 0.20, 0.20, 1.0)
 @onready var start_btn: Button = $Content/BottomHolder/ButtonRow/StartButton
 @onready var back_btn: Button = $Content/BottomHolder/ButtonRow/BackButton
 @onready var card: PanelContainer = $Content/CenterHolder/Card
+@onready var card_vbox: Container = $Content/CenterHolder/Card/CardVBox
 
 class FloatSpeck:
 	var node: Node2D
@@ -82,6 +83,9 @@ var _t: float = 0.0
 var _asc_level: int = 0
 var _pip_buttons: Array[Button] = []
 var _focus_targets: Array[Button] = []
+var _hero_idx: int = 0
+var _hero_name_lbl: Label = null
+var _hero_blurb_lbl: Label = null
 
 func _ready() -> void:
 	# When embedded in the title screen, skip our own bg + decor build —
@@ -100,6 +104,7 @@ func _ready() -> void:
 		if has_node("BgFallback"):  $BgFallback.visible = false
 		if has_node("BgGradient"):  $BgGradient.visible = false
 	_build_card_style()
+	_build_hero_selector()
 	_asc_level = clamp(GameSettings.ascension, 0, MetaSave.max_ascension)
 	_build_pips()
 	_refresh()
@@ -127,9 +132,9 @@ func _build_bg_gradient() -> void:
 	var gradient := Gradient.new()
 	gradient.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
 	gradient.colors = PackedColorArray([
-		Color(0.04, 0.02, 0.10),
-		Color(0.12, 0.05, 0.24),
-		Color(0.02, 0.02, 0.06),
+		Color(0.05, 0.07, 0.12),
+		Color(0.07, 0.10, 0.16),
+		Color(0.03, 0.04, 0.08),
 	])
 	var tex := GradientTexture2D.new()
 	tex.gradient = gradient
@@ -143,12 +148,12 @@ func _build_bg_gradient() -> void:
 func _build_card_style() -> void:
 	# Programmatic StyleBoxFlat so we don't need to set up sub-resources in .tscn
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.06, 0.04, 0.14, 0.78)
+	sb.bg_color = Color(0.08, 0.10, 0.15, 0.88)
 	sb.border_width_left = 2
 	sb.border_width_top = 2
 	sb.border_width_right = 2
 	sb.border_width_bottom = 2
-	sb.border_color = Color(0.65, 0.45, 0.95, 0.55)
+	sb.border_color = Color(0.27, 0.85, 0.74, 0.5)
 	sb.corner_radius_top_left = 16
 	sb.corner_radius_top_right = 16
 	sb.corner_radius_bottom_right = 16
@@ -321,6 +326,97 @@ func _build_pizza_planet(radius: float) -> Node2D:
 	return n2d
 
 # ---------------------------------------------------------------------------
+# Hero selector
+# ---------------------------------------------------------------------------
+
+func _build_hero_selector() -> void:
+	# Start on the currently-chosen hero.
+	_hero_idx = 0
+	for i in ArpgState.HEROES.size():
+		if String((ArpgState.HEROES[i] as Dictionary).get("id", "")) == ArpgState.hero_id:
+			_hero_idx = i
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 3)
+
+	var hdr := Label.new()
+	hdr.text = "HERO"
+	hdr.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hdr.add_theme_font_size_override("font_size", 14)
+	hdr.add_theme_color_override("font_color", Color(0.55, 0.72, 0.78))
+	box.add_child(hdr)
+
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 14)
+	box.add_child(row)
+
+	var lb := _arrow_button("◀")
+	lb.pressed.connect(func(): _cycle_hero(-1))
+	row.add_child(lb)
+
+	_hero_name_lbl = Label.new()
+	_hero_name_lbl.custom_minimum_size = Vector2(230, 0)
+	_hero_name_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hero_name_lbl.add_theme_font_size_override("font_size", 28)
+	row.add_child(_hero_name_lbl)
+
+	var rb := _arrow_button("▶")
+	rb.pressed.connect(func(): _cycle_hero(1))
+	row.add_child(rb)
+
+	_hero_blurb_lbl = Label.new()
+	_hero_blurb_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hero_blurb_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hero_blurb_lbl.custom_minimum_size = Vector2(340, 0)
+	_hero_blurb_lbl.add_theme_font_size_override("font_size", 14)
+	_hero_blurb_lbl.add_theme_color_override("font_color", Color(0.82, 0.84, 0.92))
+	box.add_child(_hero_blurb_lbl)
+
+	box.add_child(HSeparator.new())
+
+	# Insert the hero block at the very top of the card.
+	card_vbox.add_child(box)
+	card_vbox.move_child(box, 0)
+
+	for b in [lb, rb]:
+		b.mouse_entered.connect(_on_button_hover.bind(b, true))
+		b.mouse_exited.connect(_on_button_hover.bind(b, false))
+		b.pivot_offset = b.size * 0.5
+		b.resized.connect(func(): b.pivot_offset = b.size * 0.5)
+
+	_refresh_hero()
+
+func _arrow_button(txt: String) -> Button:
+	var b := Button.new()
+	b.text = txt
+	b.custom_minimum_size = Vector2(46, 46)
+	b.add_theme_font_size_override("font_size", 22)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.10, 0.13, 0.18, 0.7)
+	sb.set_corner_radius_all(10)
+	b.add_theme_stylebox_override("normal", sb)
+	var sbh := sb.duplicate() as StyleBoxFlat
+	sbh.bg_color = Color(0.12, 0.24, 0.26, 0.9)
+	sbh.set_border_width_all(2)
+	sbh.border_color = Color(0.27, 0.85, 0.74, 1.0)
+	sbh.anti_aliasing = true
+	b.add_theme_stylebox_override("hover", sbh)
+	b.add_theme_stylebox_override("focus", sbh)
+	b.add_theme_stylebox_override("pressed", sbh)
+	return b
+
+func _cycle_hero(d: int) -> void:
+	var n: int = ArpgState.HEROES.size()
+	_hero_idx = (_hero_idx + d + n) % n
+	_refresh_hero()
+
+func _refresh_hero() -> void:
+	var h: Dictionary = ArpgState.HEROES[_hero_idx]
+	_hero_name_lbl.text = String(h.get("name", "Hero"))
+	_hero_name_lbl.add_theme_color_override("font_color", h.get("color", Color(1, 1, 1)))
+	_hero_blurb_lbl.text = "Starts with %s.\n%s" % [String(h.get("weapon", "")), String(h.get("blurb", ""))]
+
+# ---------------------------------------------------------------------------
 # Ascension pips
 # ---------------------------------------------------------------------------
 
@@ -339,16 +435,20 @@ func _build_pips() -> void:
 		b.add_theme_font_size_override("font_size", 18)
 		# Pip styling: pill with hover glow
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.12, 0.08, 0.20, 0.65)
+		sb.bg_color = Color(0.10, 0.13, 0.18, 0.7)
 		sb.corner_radius_top_left = 23
 		sb.corner_radius_top_right = 23
 		sb.corner_radius_bottom_right = 23
 		sb.corner_radius_bottom_left = 23
 		b.add_theme_stylebox_override("normal", sb)
 		var sb_hover := sb.duplicate() as StyleBoxFlat
-		sb_hover.bg_color = Color(0.32, 0.16, 0.48, 0.9)
-		sb_hover.border_width_bottom = 2
-		sb_hover.border_color = Color(1.0, 0.85, 0.4, 1.0)
+		sb_hover.bg_color = Color(0.12, 0.24, 0.26, 0.9)
+		# A bottom-ONLY border on a circular pip renders as a jagged/aliased arc.
+		# Use an even ring + anti-aliasing for a clean hover highlight instead.
+		sb_hover.set_border_width_all(2)
+		sb_hover.border_color = Color(0.27, 0.85, 0.74, 1.0)
+		sb_hover.anti_aliasing = true
+		sb_hover.anti_aliasing_size = 1.0
 		b.add_theme_stylebox_override("hover", sb_hover)
 		b.add_theme_stylebox_override("focus", sb_hover)
 		b.add_theme_stylebox_override("pressed", sb_hover)
@@ -486,6 +586,8 @@ func _on_button_hover(btn: Button, hovered: bool) -> void:
 func _on_start() -> void:
 	# Weapons are battle-only pickups now — always start with the default pizza.
 	GameSettings.selected_weapon = "default"
+	# Lock in the chosen hero — reset_run (fired in the dive callback) reads it.
+	ArpgState.set_hero(String((ArpgState.HEROES[_hero_idx] as Dictionary).get("id", "finn")))
 	GameSettings.ascension = _asc_level
 	RunState.reset()
 	# Clean fade-zoom OUT: content scales 1.0 → 1.05, alpha to 0, plus a

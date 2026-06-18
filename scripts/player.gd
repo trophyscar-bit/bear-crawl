@@ -32,6 +32,7 @@ const RUPERT_SCALE: float = 2.4
 # computed each time boons are applied
 var speed: float = 220.0
 var _freeze_t: float = 0.0   # >0 = frozen in place (Frost Cub)
+var _freeze_immune_t: float = 0.0   # >0 = can't be re-frozen (anti perma-freeze lock)
 var max_health: int = 5
 var health: int
 
@@ -102,14 +103,39 @@ func _ready() -> void:
 	apply_boons()
 	health = max_health
 	anim.play("idle")
-	# Enemies live on collision layer 3 so they don't push each other; we
-	# need to add bit 3 to our mask so we still collide with them.
-	set_collision_mask_value(3, true)
+	# The player does NOT collide with enemies (layer 3) — being blocked by enemy/boss
+	# bodies is what "glued" the player to them and locked movement. Enemies still collide
+	# with US (their mask hits our layer 1), so touch damage via their slide-collision keeps
+	# working; we just slip free instead of getting wedged.
+	set_collision_mask_value(3, false)
 	_rig_base_pos = rig.position
 	_rig_base_scale = Vector2(abs(rig.scale.x), abs(rig.scale.y))  # forget facing sign
 	_spawn_shadow()
-	# Rupert sprite-sheet experiment disabled — reverted to the original rig.
-	# _setup_rupert()
+	# Hand-drawn level → swap Rupert's rig sprites for the woodcut (style #5) versions.
+	# (The level is flat-lit, so dropping the normal map here doesn't matter.)
+	var _par := get_parent()
+	if _par != null and "theme" in _par and String(_par.get("theme")) == "hand":
+		var _bd := rig.get_node_or_null("Body") as Sprite2D
+		var _lg := rig.get_node_or_null("Legs") as Sprite2D
+		if _bd != null and ResourceLoader.exists("res://assets/bear_upper_hand.png"):
+			_bd.texture = load("res://assets/bear_upper_hand.png")
+		if _lg != null and ResourceLoader.exists("res://assets/bear_legs_hand.png"):
+			_lg.texture = load("res://assets/bear_legs_hand.png")
+	# Wheat field → plop a straw farmer's hat on Rupert's head (rides the body sprite).
+	elif _par != null and "theme" in _par and String(_par.get("theme")) == "wheat":
+		var _bd3 := rig.get_node_or_null("Body") as Sprite2D
+		if _bd3 != null and _bd3.texture != null and ResourceLoader.exists("res://assets/wheat/props/straw_hat.png"):
+			var hat := Sprite2D.new()
+			hat.texture = load("res://assets/wheat/props/straw_hat.png")
+			hat.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+			var bw: float = float(_bd3.texture.get_width())
+			var bh: float = float(_bd3.texture.get_height())
+			var hw: float = float(hat.texture.get_width())
+			# size the hat to ~60% of the body width and rest it on the crown of the head
+			hat.scale = Vector2.ONE * (0.6 * bw / hw)
+			hat.position = Vector2(-bw * 0.05, -bh * 0.50)   # shifted left to center on the head
+			hat.z_index = 3
+			_bd3.add_child(hat)
 
 func _setup_rupert() -> void:
 	# Try the standard load() first (uses Godot's import pipeline if .import
@@ -118,12 +144,19 @@ func _setup_rupert() -> void:
 	# has never been opened since the PNG was added.
 	_rupert_sheet = load("res://assets/rupert_sheet.png") as Texture2D
 	if _rupert_sheet == null:
+		# Hand-drawn level → load the woodcut Rupert sheet (falls back to the normal one).
+		var par := get_parent()
+		var hand: bool = par != null and "theme" in par and String(par.get("theme")) == "hand"
 		var img := Image.new()
-		var err := img.load("res://assets/rupert_sheet.png")
+		var err: int = ERR_CANT_OPEN
+		if hand:
+			err = img.load("res://assets/rupert_sheet_hand.png")
+		if err != OK:
+			err = img.load("res://assets/rupert_sheet.png")
 		if err == OK:
 			_rupert_sheet = ImageTexture.create_from_image(img)
 		else:
-			push_warning("[player] could not load rupert_sheet.png (err=%d)" % err)
+			push_warning("[player] could not load rupert_sheet (err=%d)" % err)
 			return
 	# Hide the old composite-bear sprites (Body + Legs) and add a single
 	# region-clipped Sprite2D that shows the right frame of rupert_sheet.png.
@@ -212,13 +245,20 @@ func apply_boons() -> void:
 	# = the +4 Max HP level-up/shop cards. The latter was MISSING here, so picking
 	# "+4 Max HP" did nothing.
 	max_health = base_max_health + meta_hp + RunState.bonus_max_health() + ArpgState.bonus_max_health()
-	speed = base_speed * meta_speed_mult * RunState.move_speed_multiplier()
-	# Ascension 4: start at 3 HP instead of 5
+	# ArpgState.speed_mult = the "Roller Skates" / +8% Move Speed boons. It was MISSING
+	# here, so picking up speed pickups did nothing (same bug as the Max HP one above).
+	speed = base_speed * meta_speed_mult * RunState.move_speed_multiplier() * ArpgState.speed_mult
+	# Ascension 4 (GLASS BEAR curse): hard-cap max HP to 3 no matter how many
+	# Max-HP upgrades you've bought — you really are made of glass.
 	if GameSettings.ascension >= 4:
-		max_health = max(1, max_health - 2)
+		max_health = 3
 	# if a Plush Armor boon was just picked, also gain that HP
 	if old_max > 0 and max_health > old_max:
 		health = min(health + (max_health - old_max), max_health)
+	# Always clamp current HP to max — recomputing max can lower it (per-floor
+	# respawn, ascension penalty, a removed boon), and current must never exceed it
+	# (the "15 / 11" overflow bug).
+	health = min(health, max_health)
 	# Spawn the Pizza Wheel once if the boon is picked, despawn if it isn't
 	if RunState.has_pizza_wheel() and not is_instance_valid(_pizza_wheel):
 		var wheel := preload("res://scenes/pizza_wheel.tscn").instantiate()
@@ -263,7 +303,20 @@ func shake(strength: float, duration: float) -> void:
 	_shake_time = duration
 	_shake_total = duration
 
+var _knock_vel: Vector2 = Vector2.ZERO
+var _knock_t: float = 0.0
+
+func knockback(from_dir: Vector2, force: float) -> void:
+	# Get launched (desert boss charge). The velocity decays and move_and_slide stops us at
+	# the first wall, so we "fly across the room until we hit something".
+	_knock_vel = from_dir.normalized() * force
+	_knock_t = 0.5
+
 func _physics_process(delta: float) -> void:
+	# Tick down the post-freeze immunity (runs even while frozen so the 5s grace
+	# starts counting the moment you thaw).
+	if _freeze_immune_t > 0.0:
+		_freeze_immune_t -= delta
 	# Frozen solid (Frost Cub orb): can't move or act until it wears off.
 	if _freeze_t > 0.0:
 		_freeze_t -= delta
@@ -271,6 +324,13 @@ func _physics_process(delta: float) -> void:
 		move_and_slide()
 		if _freeze_t <= 0.0 and not _dying:
 			modulate = Color(1, 1, 1)
+		return
+	# Knockback launch — overrides input while it lasts; a wall stops us via move_and_slide.
+	if _knock_t > 0.0:
+		_knock_t -= delta
+		velocity = _knock_vel
+		_knock_vel = _knock_vel.lerp(Vector2.ZERO, 3.5 * delta)
+		move_and_slide()
 		return
 	var dir := Vector2(
 		Input.get_axis("move_left", "move_right"),
@@ -283,7 +343,7 @@ func _physics_process(delta: float) -> void:
 
 	# Wounded drip trail: at critically low HP (≤2) Rupert leaks little stuffing
 	# spots at his feet as he moves — stops once healed back to 3+.
-	if not _dying and health <= 2 and dir.length() > 0.1:
+	if not _dying and health <= 4 and dir.length() > 0.1:
 		_drip_t -= delta
 		if _drip_t <= 0.0:
 			_drip_t = randf_range(0.16, 0.26)
@@ -354,6 +414,9 @@ func _physics_process(delta: float) -> void:
 	# ARPG mode, ATTACK_RATE otherwise), so holding the button keeps shooting.
 	if Input.is_action_pressed("attack") and attack_cooldown <= 0.0:
 		_throw_pizza()
+	# Auto-firing secondary weapons run on their own timers, hands-free.
+	if ArpgState.active and not ArpgState.extra_weapons.is_empty():
+		_tick_extra_weapons(delta)
 
 func _throw_pizza() -> void:
 	# ARPG mode: the equipped loot weapon drives fire-rate, spread and stats.
@@ -385,6 +448,7 @@ func _throw_pizza() -> void:
 func _throw_arpg_weapon() -> void:
 	attack_cooldown = ArpgState.weapon_cooldown()
 	_squash = Vector2(1.12, 0.92)
+	_active_weapon = ArpgState.weapon
 	var center_dir: Vector2 = _last_dir if _last_dir != Vector2.ZERO else Vector2(_facing, 0)
 	_fire_volley(center_dir, 1.0)
 	# Back Shot power-up: fire an identical volley out the back (180° opposite). It's
@@ -394,9 +458,50 @@ func _throw_arpg_weapon() -> void:
 		_firing_back = true
 		_fire_volley(-center_dir, 0.45)
 		_firing_back = false
+	_active_weapon = {}
+
+# ── auto-firing secondary weapons (Vampire-Survivors style) ──────────────────
+# Each secondary weapon fires on its own cooldown, auto-aimed at the nearest enemy,
+# independent of the manual attack button.
+func _tick_extra_weapons(delta: float) -> void:
+	var extras: Array = ArpgState.extra_weapons
+	if extras.is_empty():
+		if not _extra_cd.is_empty():
+			_extra_cd.clear()
+		return
+	while _extra_cd.size() < extras.size():
+		_extra_cd.append(0.0)
+	for i in extras.size():
+		_extra_cd[i] -= delta
+		if _extra_cd[i] <= 0.0:
+			var w: Dictionary = extras[i]
+			_extra_cd[i] = ArpgState.weapon_cooldown_of(w)
+			_fire_extra(w)
+
+func _fire_extra(w: Dictionary) -> void:
+	var dir: Vector2 = _nearest_enemy_dir()
+	if dir == Vector2.ZERO:
+		return   # nothing in range — don't spray into empty space
+	_active_weapon = w
+	_fire_volley(dir, 1.0)
+	_active_weapon = {}
+
+func _nearest_enemy_dir() -> Vector2:
+	var nearest: Node2D = null
+	var nd: float = INF
+	for e in get_tree().get_nodes_in_group("enemies"):
+		if not (e is Node2D):
+			continue
+		var d: float = (e as Node2D).global_position.distance_to(global_position)
+		if d < nd:
+			nd = d
+			nearest = e as Node2D
+	if nearest == null:
+		return Vector2.ZERO
+	return (nearest.global_position - global_position).normalized()
 
 func _fire_volley(center_dir: Vector2, range_mult: float) -> void:
-	var count: int = ArpgState.weapon_count()
+	var count: int = ArpgState.weapon_count_of(_cur_weapon())
 	var spread_deg: float = 9.0 * float(count - 1)
 	for i in count:
 		var offset: float = 0.0
@@ -421,6 +526,13 @@ func _throw_default_pizza() -> void:
 
 var _range_mult: float = 1.0   # shortens projectile range (Back Shot rear volley)
 var _firing_back: bool = false # true while the Back Shot rear volley fires (kill analytics)
+var _extra_cd: Array[float] = []     # per-secondary-weapon auto-fire countdowns
+var _active_weapon: Dictionary = {}  # weapon currently being fired (primary OR a secondary)
+
+# The weapon currently being thrown: an auto-firing secondary while one is firing,
+# otherwise the hero's equipped primary.
+func _cur_weapon() -> Dictionary:
+	return _active_weapon if not _active_weapon.is_empty() else ArpgState.weapon
 var _drip_t: float = 0.0        # cadence for the low-HP wounded drip trail
 var _proj_cache: Dictionary = {}
 func _proj_tex(name: String) -> Texture2D:
@@ -462,24 +574,28 @@ func _spawn_pizza(dir: Vector2, hostile_flag: bool) -> void:
 			col.shape = dup
 	# ARPG: the equipped weapon overrides damage/speed and tints the projectile.
 	if ArpgState.active and not ArpgState.weapon.is_empty():
-		var w: Dictionary = ArpgState.weapon
-		var dmg: int = ArpgState.weapon_damage()
+		var w: Dictionary = _cur_weapon()
+		var dmg: int = ArpgState.weapon_damage_of(w)
 		var col: Color = w.get("color", Color(1, 1, 1))
 		var spr := pizza.get_node_or_null("Sprite") as Sprite2D
 		var themed: bool = false   # weapon-specific projectile art (keep its colours)
-		if bool(w.get("ball", false)):
+		var is_ball: bool = bool(w.get("ball", false))
+		if is_ball:
 			# Bouncy Blaster: random-colour ball, many bounces, long life, and it
 			# ignores the post-bounce distance cap so it keeps ricocheting.
 			col = Color.from_hsv(randf(), 0.85, 1.0)
-			pizza.max_bounces = int(w.get("bounces", 8))
+			pizza.max_bounces = 0 if GameSettings.ascension >= 3 else int(w.get("bounces", 8))
 			pizza.lifetime = 4.0
 			pizza.max_distance_after_bounce = 100000.0
 			pizza.spin_speed = 5.0
 			if spr != null:
 				spr.texture = BouncyBallTex
-				spr.scale = Vector2(0.5, 0.5)
+				# 64px ball texture sized to match its 24px hitbox (was 0.5 → 32px,
+				# which looked oversized, and crits ballooned it to ~48px).
+				spr.scale = Vector2(0.38, 0.38)
 		else:
-			pizza.max_bounces = 1   # one proper ricochet off walls (reflects forward)
+			# Ascension 3 curse: pizzas no longer bounce off walls.
+			pizza.max_bounces = 0 if GameSettings.ascension >= 3 else 1   # one ricochet (reflects forward)
 			# Weapon-specific projectile sprite (pepperoni / cheese / deep-dish / ice)
 			# so the pizza weapons don't all look identical.
 			if spr != null and w.has("proj"):
@@ -492,7 +608,9 @@ func _spawn_pizza(dir: Vector2, hostile_flag: bool) -> void:
 		if ArpgState.rolled_crit():
 			dmg = int(round(float(dmg) * 2.0))
 			col = Color(1.0, 0.95, 0.4)            # crit = golden flash
-			if spr != null:
+			# Balls keep their size on crit (the ×1.5 made them read as double-size);
+			# the golden tint alone signals the crit.
+			if spr != null and not is_ball:
 				spr.scale *= 1.5
 			pizza.is_crit = true
 		pizza.damage = dmg
@@ -661,8 +779,13 @@ func _spawn_hit_stain(big: bool = false) -> void:
 	tw.tween_property(st, "modulate:a", 0.0, 5.0)   # …then slowly fade
 	tw.tween_callback(st.queue_free)
 
-func take_damage(amount: int, dramatic: bool = false) -> void:
-	if _dying or _invuln_time > 0.0:
+func take_damage(amount: int, dramatic: bool = false, ignore_invuln: bool = false) -> void:
+	# ignore_invuln = environmental damage (spikes / hazards). It ticks through i-frames
+	# (so being frozen on spikes still hurts each tick), doesn't burn Soft Landing, and
+	# doesn't grant i-frames of its own. Its own trap interval paces the damage.
+	if _dying:
+		return
+	if _invuln_time > 0.0 and not ignore_invuln:
 		return
 	if DevState.invincible:
 		# Dev: show a floating damage number above the player so you can
@@ -671,7 +794,7 @@ func take_damage(amount: int, dramatic: bool = false) -> void:
 		return
 	# Soft Landing legendary — eat one hit per room. The orbiting blue pizza
 	# shield IS the visual representation of this charge; consume it now.
-	if RunState.has_soft_landing() and not _soft_landing_used_this_room:
+	if not ignore_invuln and RunState.has_soft_landing() and not _soft_landing_used_this_room:
 		_soft_landing_used_this_room = true
 		_invuln_time = INVULN_DURATION
 		# brief soft-blue flash to signal the save
@@ -690,7 +813,8 @@ func take_damage(amount: int, dramatic: bool = false) -> void:
 			_soft_landing_shield = null
 		shake(5.0, 0.18)
 		return
-	_invuln_time = INVULN_DURATION
+	if not ignore_invuln:
+		_invuln_time = INVULN_DURATION
 	health -= amount
 	Stats.player_hit(amount)
 	_spawn_hit_stuffing(dramatic)   # Rupert puffs stuffing when hit (big burst for blasts)
@@ -800,6 +924,25 @@ func grant_stack_bonus_max_hp(n: int) -> void:
 	modulate = Color(1.2, 1.0, 0.6)
 	get_tree().create_timer(0.25).timeout.connect(func(): if not _dying: modulate = Color(1, 1, 1))
 
+# Forgiving ground-AoE damage. Overlapping blasts that detonate the same frame are
+# batched: N simultaneous AoE hits deal ceil(N/2) total, not N (1→1, 3→2, 5→3, 6→3).
+# So accidentally standing in a cluster of telegraphed strikes isn't instant death.
+var _aoe_hits_frame: int = 0
+var _aoe_pending: bool = false
+
+func aoe_hit() -> void:
+	_aoe_hits_frame += 1
+	if not _aoe_pending:
+		_aoe_pending = true
+		call_deferred("_resolve_aoe")
+
+func _resolve_aoe() -> void:
+	var n: int = _aoe_hits_frame
+	_aoe_hits_frame = 0
+	_aoe_pending = false
+	if n > 0 and not _dying:
+		take_damage(int(ceil(float(n) / 2.0)))
+
 func heal(amount: int) -> void:
 	health = min(health + amount, max_health)
 	modulate = Color(0.6, 1.0, 0.7)
@@ -809,7 +952,13 @@ func freeze(duration: float) -> void:
 	# Frost Cub orb hit — locked in an ice-blue freeze for `duration` seconds.
 	if _dying:
 		return
+	# Anti perma-freeze: a frost enemy that fires on cooldown could chain-freeze you
+	# forever. After a freeze you get the freeze duration + a 4s grace where further
+	# freeze orbs do nothing (they still deal any contact damage, just don't re-lock).
+	if _freeze_immune_t > 0.0:
+		return
 	_freeze_t = maxf(_freeze_t, duration)
+	_freeze_immune_t = duration + 4.0
 	modulate = Color(0.5, 0.78, 1.25)   # icy tint, held while frozen
 
 func _spawn_dev_damage_popup(amount: int) -> void:

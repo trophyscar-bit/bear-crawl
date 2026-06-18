@@ -18,12 +18,20 @@ const HoundScene := preload("res://scenes/hound.tscn")
 const FrostCubScene := preload("res://scenes/frost_cub.tscn")
 const SealScene := preload("res://scenes/seal.tscn")
 const ArmyBearScene := preload("res://scenes/army_bear.tscn")
+const PartyAnimalScene := preload("res://scenes/party_animal.tscn")
+const BossScene := preload("res://scenes/boss.tscn")            # the original dark-bear boss
+const DesertBossScene := preload("res://scenes/desert_boss.tscn")  # desert charger
 const BeanieBearScene := preload("res://scenes/beanie_bear.tscn")
 const TeddyBearScene := preload("res://scenes/teddy_bear.tscn")
 const CreamBearScene := preload("res://scenes/cream_bear.tscn")
+const PaleBearScene := preload("res://scenes/pale_bear.tscn")     # fast weak swarmer (white plush)
+const YarnBearScene := preload("res://scenes/yarn_bear.tscn")     # tangled-in-yarn melee chaser
+const PotBearScene := preload("res://scenes/pot_bear.tscn")       # slow tanky bruiser (in a pot)
 const DarkAllyScene := preload("res://scenes/dark_bear_ally.tscn")
 const SkeletonScene := preload("res://scenes/skeleton.tscn")
 const SwordSkeletonScene := preload("res://scenes/sword_skeleton.tscn")
+const KKPupScene := preload("res://scenes/kk_pup.tscn")
+const LawnBearScript := preload("res://scripts/lawn_bear.gd")
 const CRITTER_POOL: Array = [DucklingScene, HoundScene, FrostCubScene, SealScene, BeanieBearScene, TeddyBearScene, CreamBearScene, SkeletonScene]
 const LightTex := preload("res://assets/light_radial.png")
 const FloorTex := preload("res://assets/dungeon_floor.png")
@@ -95,6 +103,20 @@ var _near_loot_area: Area2D = null
 @export var theme: String = "cave"
 var _bk_wall: Texture2D = null
 var _bk_floor: Texture2D = null
+# Custom themed levels (neon / damp / hand) drive their floor+wall+props+mood from
+# a per-variant config (see _variant_cfg). One scene per theme; the dev Level Lab
+# picks the design variant via ArpgState.pending_variant.
+@export var variant: int = 1
+@export var floor_px_override: int = 0   # tile-size test: force the floor display px
+@export var wall_override: String = ""   # wall test: force a specific wall tile name
+@export var wall_face_override: float = 0.0  # wall test: force the front-face height
+var _variant: int = 1
+var _lvl_wall: Texture2D = null
+var _lvl_wall_top: Texture2D = null
+var _lvl_floor: Texture2D = null
+var _lvl_ambient: Color = Color(0.15, 0.14, 0.21)
+var _lvl_cfg: Dictionary = {}
+var _tex_cache: Dictionary = {}
 var _pack: int = 1                  # backrooms asset pack 1-5 (live-switchable)
 var _bk_floor_node: TextureRect = null
 var _pack_buttons: Array[Button] = []
@@ -126,33 +148,53 @@ func _ready() -> void:
 	if theme == "backrooms":
 		_bk_wall = _load_tex_opt("res://assets/backrooms_wall.png")
 		_bk_floor = _load_tex_opt("res://assets/backrooms_floor.png")
+	elif _is_custom_theme():
+		_apply_variant()
 	ArpgState.active = true
 	ArpgState.begin_spawn_grace(5.0)   # 5s breather — nothing shoots on level entry
-	ArpgState.no_projectile_glow = (theme == "backrooms")   # flat level — no glow
+	ArpgState.no_projectile_glow = _flat_lit()   # flat levels — no projectile glow
 	ArpgState.dungeon_path = scene_file_path   # so the shop knows where to descend
 	ArpgState.loot_dropped.connect(_spawn_loot)
 	ArpgState.leveled_up.connect(_on_level_up)
 	ArpgState.toast.connect(_on_toast)
-	_generate_bsp()
+	if theme == "suburb":
+		_generate_suburb()
+	else:
+		_generate_bsp()
 	_build_nav()
 	_spawn_floor()
 	_build_walls()
 	_spawn_player()
 	_spawn_boss()
 	_spawn_exit()
-	if theme != "backrooms":
-		_spawn_braziers()       # cave candelabras/stalagmites — backrooms is bare
+	if theme != "backrooms" and not _is_custom_theme():
+		_spawn_braziers()       # cave candelabras/stalagmites — themed levels bring their own
 	_spawn_traps()
 	_spawn_enemies()
 	# Healing hearts per floor now scale with difficulty (was a flat 13 — that alone
 	# healed ~26 HP a floor and made damage meaningless).
 	match GameSettings.difficulty:
-		0: item_count = 7    # EASY
-		2: item_count = 2    # HARD
-		_: item_count = 4    # MEDIUM
+		0: item_count = 5    # EASY  (was 7)
+		2: item_count = 1    # HARD  (was 2)
+		_: item_count = 3    # MEDIUM (was 4)
+	if GameSettings.ascension >= 1:
+		item_count = maxi(1, int(round(float(item_count) * 0.7)))   # ascension floors: ~30% fewer hearts
 	_spawn_items()
 	if theme == "backrooms":
 		_spawn_props()
+	elif _is_custom_theme():
+		_spawn_custom_props()
+		if theme == "hand":
+			_spawn_hand_wall_torches()
+			_spawn_hand_pillars()
+			_spawn_hand_clusters()
+		elif theme == "poolrooms":
+			_spawn_pools()
+			_spawn_pool_wall_fixtures()
+		elif theme == "wheat":
+			_spawn_wheat_decor()
+		elif theme == "sewer":
+			_spawn_sewer_canals()
 	_camera.make_current()
 	if _minimap and _minimap.has_method("bind"):
 		_minimap.bind(self)
@@ -162,6 +204,34 @@ func _ready() -> void:
 	_apply_lighting_mode(1)   # Standard only — locked
 	if theme == "backrooms":
 		_build_backrooms_lighting()
+	elif theme == "hand":
+		_ambient.color = Color(0.90, 0.89, 0.86)   # flat normal lighting — lit white page
+	elif theme == "cyber2077":
+		_ambient.color = Color(0.84, 0.85, 0.90)   # flat normal lighting — cool, no neon aura
+	elif theme == "wheat":
+		_ambient.color = Color(0.98, 0.95, 0.80)   # warm sunny daylight — outdoor field
+	elif theme == "suburb":
+		_ambient.color = Color(0.94, 0.95, 0.98)   # neutral daylight — outdoor neighbourhood
+		_stripe_suburb_roads()
+		_scatter_suburb_houses()
+		_spawn_suburb_cars()
+		_spawn_lawn_bears()
+	elif theme == "glitch":
+		_ambient.color = Color(0.55, 0.55, 0.6)     # mid — so the flashing brick colours read
+		_apply_glitch_player()
+		_start_glitch_flash()
+	elif theme == "poolrooms":
+		# Flat-lit (no player aura / shot glow that washed everything out). Day variants
+		# (1-3) are brightly lit; night variants (4-5) drop to a dim, moody pool.
+		_ambient.color = Color(0.90, 0.91, 0.88) if _variant <= 3 else Color(0.34, 0.39, 0.46)
+	elif theme == "toystore":
+		_ambient.color = Color(0.96, 0.95, 0.92)    # bright store lighting
+	elif theme == "carnival":
+		_ambient.color = Color(0.95, 0.96, 0.98)    # outdoor daylight midway
+	elif theme == "frozen":
+		_ambient.color = Color(0.72, 0.82, 0.95)    # cold pale-blue cavern glow
+	elif _is_custom_theme():
+		_ambient.color = _lvl_ambient
 	_apply_brightness(ArpgState.brightness_level, false)   # restore chosen darkness preset
 
 # ── BSP generation ─────────────────────────────────────────────────────────
@@ -251,6 +321,32 @@ func _generate_bsp() -> void:
 		if float(pair[1]) >= min_d:
 			candidates.append(int(pair[0]))
 	_boss_room = _rooms[candidates[randi() % candidates.size()]] if not candidates.is_empty() else _rooms[far_fallback]
+	_scrub_isolated_walls()
+
+# Carve away "lone cube" wall cells — a solid cell with floor on all four sides reads
+# as a random block floating in the middle of a room. Corridors/room edges keep their
+# walls (those have a solid neighbour); only fully-surrounded singletons are removed.
+func _scrub_isolated_walls() -> void:
+	# Remove "lone cube" walls AND thin peninsula nubs — a wall cell jutting into a room
+	# with 3+ open orthogonal sides reads as a random wall block in the middle of the
+	# floor. Iterated a few passes since removing one nub can expose the next.
+	for _pass in range(3):
+		var kill: Array = []
+		for y in range(1, _fh - 1):
+			for x in range(1, _fw - 1):
+				if not _wall[y][x]:
+					continue
+				var open_n: int = 0
+				if not _wall[y - 1][x]: open_n += 1
+				if not _wall[y + 1][x]: open_n += 1
+				if not _wall[y][x - 1]: open_n += 1
+				if not _wall[y][x + 1]: open_n += 1
+				if open_n >= 3:
+					kill.append(Vector2i(x, y))
+		if kill.is_empty():
+			break
+		for c in kill:
+			_wall[c.y][c.x] = false
 
 func _carve_rect(r: Rect2i) -> void:
 	for y in range(r.position.y, r.position.y + r.size.y):
@@ -260,6 +356,85 @@ func _carve_rect(r: Rect2i) -> void:
 func _carve_cell(x: int, y: int) -> void:
 	if x >= 0 and x < _fw and y >= 0 and y < _fh:
 		_wall[y][x] = false
+
+# ── SUBURB: a connected cul-de-sac road network ─────────────────────────────────
+# Roads are the walkable FLOOR; the houses fill the rest as the wall mass. Two avenues
+# spanning the map, vertical connectors tying them into one loop (so EVERY road links),
+# and cul-de-sac branches that dead-end in circular courts (the rooms / fight arenas).
+func _carve_hroad(x0: int, x1: int, yc: int, w: int) -> void:
+	var h: int = w / 2
+	for x in range(x0, x1 + 1):
+		for dy in range(-h, w - h):
+			_carve_cell(x, yc + dy)
+
+func _carve_vroad(y0: int, y1: int, xc: int, w: int) -> void:
+	var h: int = w / 2
+	for y in range(mini(y0, y1), maxi(y0, y1) + 1):
+		for dx in range(-h, w - h):
+			_carve_cell(xc + dx, y)
+
+func _carve_bulb(cx: int, cy: int, r: int) -> void:
+	for y in range(cy - r, cy + r + 1):
+		for x in range(cx - r, cx + r + 1):
+			if Vector2(x - cx, y - cy).length() <= float(r) + 0.5:
+				_carve_cell(x, y)
+	_rooms.append(Rect2i(maxi(1, cx - r), maxi(1, cy - r),
+		mini(2 * r, _fw - 2 - maxi(1, cx - r)), mini(2 * r, _fh - 2 - maxi(1, cy - r))))
+
+func _generate_suburb() -> void:
+	_fw = grid_w
+	_fh = grid_h
+	_wall = []
+	for y in _fh:
+		var row: Array = []
+		for x in _fw:
+			row.append(true)
+		_wall.append(row)
+	_rooms = []
+	var W: int = 3       # road width (cells)
+	var m: int = 4       # edge margin
+	var ay_top: int = m + 12
+	var ay_bot: int = _fh - m - 12
+	var ay_mid: int = (ay_top + ay_bot) / 2
+	# Two full avenues + a shorter mid avenue.
+	_carve_hroad(m, _fw - m, ay_top, W)
+	_carve_hroad(m, _fw - m, ay_bot, W)
+	_carve_hroad(m + 8, _fw - m - 8, ay_mid, W)
+	# Vertical connectors tie the avenues into one looped network — all roads link.
+	var conx: Array = []
+	var cn: int = 4
+	for i in range(cn):
+		var cx: int = int(round(lerp(float(m + 6), float(_fw - m - 6), float(i) / float(cn - 1))))
+		conx.append(cx)
+		_carve_vroad(ay_top, ay_bot, cx, W)
+	# Cul-de-sac branches off the top & bottom avenues, each ending in a court.
+	var bxx: int = m + 14
+	while bxx < _fw - m - 10:
+		if randf() < 0.85:
+			var ty: int = randi_range(m + 5, ay_top - 6)
+			_carve_vroad(ty, ay_top, bxx, W)
+			_carve_bulb(bxx, ty, randi_range(4, 5))
+		if randf() < 0.85:
+			var by: int = randi_range(ay_bot + 6, _fh - m - 5)
+			_carve_vroad(ay_bot, by, bxx, W)
+			_carve_bulb(bxx, by, randi_range(4, 5))
+		bxx += randi_range(14, 20)
+	# Side courts off the outer connectors.
+	_carve_bulb(conx[0], ay_mid, 5)
+	_carve_bulb(conx[conx.size() - 1], ay_mid, 5)
+	if _rooms.is_empty():
+		_carve_bulb(_fw / 2, _fh / 2, 5)
+	# Start = first court; boss = the farthest court.
+	_start_room = _rooms[0]
+	var sc: Vector2 = Vector2(_room_center_cell(_start_room))
+	var far_i: int = 0
+	var far_d: float = -1.0
+	for i in range(_rooms.size()):
+		var d: float = Vector2(_room_center_cell(_rooms[i])).distance_to(sc)
+		if d > far_d:
+			far_d = d
+			far_i = i
+	_boss_room = _rooms[far_i]
 
 func _room_center_cell(r: Rect2i) -> Vector2i:
 	return Vector2i(r.position.x + r.size.x / 2, r.position.y + r.size.y / 2)
@@ -323,28 +498,165 @@ func _random_floor_world(min_dist_from_start: float = 0.0, avoid_start: bool = f
 	return _room_center_world(_rooms[_rooms.size() - 1])
 
 # ── build ──────────────────────────────────────────────────────────────────
+# Glitch floor — one tile yanked from every biome in the game, rolled per cell.
+const GLITCH_FLOOR_POOL := [
+	"res://assets/dungeon_floor.png",
+	"res://assets/backrooms_floor.png",
+	"res://assets/cyber2077/floors/floor.png",
+	"res://assets/damp/floors/cobble.png",
+	"res://assets/damp/floors/brick.png",
+	"res://assets/damp/floors/green.png",
+	"res://assets/hand/floors/bricks.png",
+	"res://assets/hand/floors/floor.png",
+	"res://assets/neon/floors/floor.png",
+	"res://assets/poolrooms/floors/deck.png",
+	"res://assets/poolrooms/floors/water.png",
+	"res://assets/sewer/floors/walk.png",
+	"res://assets/space/floors/floor.png",
+	"res://assets/suburb/floors/road.png",
+	"res://assets/wheat/floors/ground.png",
+	"res://assets/glitch/floors/static.png",
+]
+
+func _spawn_glitch_floor() -> void:
+	# CORRUPTED floor: every tile is a different biome's floor texture, rolled per cell.
+	# Heavily DARKENED so the patchwork reads as a dim backdrop — the bright flashing walls
+	# and the flashing player pop against near-black instead of fighting a busy floor.
+	var bg := ColorRect.new()
+	bg.color = Color(0, 0, 0)
+	bg.size = Vector2(_fw * tile, _fh * tile)
+	bg.z_index = -21
+	add_child(bg)
+	var floor_dim := Color(0.2, 0.2, 0.24)
+	var pool: Array = []
+	for p in GLITCH_FLOOR_POOL:
+		var t: Texture2D = _ctex(p)
+		if t != null:
+			pool.append(_upscale_tex(t, 64))
+	if pool.is_empty():
+		return
+	for y in _fh:
+		for x in _fw:
+			if _wall[y][x]:
+				continue
+			var disp: Texture2D = pool[randi() % pool.size()]
+			var ds: float = float(disp.get_width())
+			var s := Sprite2D.new()
+			s.texture = disp
+			s.position = Vector2((x + 0.5) * tile, (y + 0.5) * tile)
+			var sc: float = tile / ds
+			s.scale = Vector2(sc * (-1.0 if randf() < 0.5 else 1.0), sc * (-1.0 if randf() < 0.5 else 1.0))
+			s.rotation = float(randi() % 4) * (PI * 0.5)
+			s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			s.modulate = floor_dim   # near-black so the flashing walls/player carry the scene
+			s.z_index = -20
+			add_child(s)
+
 func _spawn_floor() -> void:
+	if theme == "glitch":
+		_spawn_glitch_floor()
+		return
 	# Plain diffuse — lights fall off SMOOTHLY across the floor (no per-tile
 	# normal-map shading, which read as a grid of gray boxes).
 	var f := TextureRect.new()
-	f.texture = _floor_texture()
+	var ftex: Texture2D = _floor_texture()
+	# Themed levels use small (16-32px) pixel-art tiles. Tiled at native size they
+	# read as a dense, busy repeat. Blow them up (integer nearest-neighbour) so each
+	# tile is a big crisp pixel-art square — far less repetition, deliberate look.
+	if _is_custom_theme():
+		var fpx: int = floor_px_override if floor_px_override > 0 else int(_lvl_cfg.get("floor_px", 64))
+		ftex = _upscale_tex(ftex, fpx)
+		f.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	f.texture = ftex
 	f.stretch_mode = TextureRect.STRETCH_TILE
 	f.size = Vector2(_fw * tile, _fh * tile)
 	f.z_index = -20
 	add_child(f)
 	_bk_floor_node = f   # kept so the backrooms pack switcher can re-texture it
+	# Cyber 2077: clean floor base, with the red "blood" tile scattered over ~10% of
+	# floor cells (not a wall-to-wall blood floor, which looked terrible).
+	if theme == "cyber2077":
+		_scatter_floor_accents("floor_blood_clean", 0.10)
+
+func _scatter_floor_accents(tile_name: String, chance: float) -> void:
+	var t: Texture2D = _ctex("res://assets/cyber2077/floors/%s.png" % tile_name)
+	if t == null:
+		return
+	var disp: Texture2D = _upscale_tex(t, 64)
+	var ds: float = float(disp.get_width())
+	for y in _fh:
+		for x in _fw:
+			if _wall[y][x] or randf() >= chance:
+				continue
+			var s := Sprite2D.new()
+			s.texture = disp
+			s.position = Vector2((x + 0.5) * tile, (y + 0.5) * tile)
+			s.scale = Vector2(tile / ds, tile / ds)
+			s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			s.z_index = -19   # just above the base floor, below the building mass
+			add_child(s)
+
+# Integer-scale a pixel-art texture up to ~target px (nearest neighbour = crisp).
+func _upscale_tex(tex: Texture2D, target: int) -> Texture2D:
+	if tex == null:
+		return tex
+	var img: Image = tex.get_image()
+	if img == null:
+		return tex
+	var s: int = maxi(1, int(round(float(target) / float(maxi(1, img.get_width())))))
+	if s <= 1:
+		return tex
+	img = img.duplicate()
+	img.resize(img.get_width() * s, img.get_height() * s, Image.INTERPOLATE_NEAREST)
+	return ImageTexture.create_from_image(img)
+
+var _glitch_white: Texture2D = null
+# Flat white tile — glitch walls use this so the colour-flash modulate reads as a SOLID
+# flashing cube (no brick texture underneath, just pure flashing colour).
+func _glitch_white_tex() -> Texture2D:
+	if _glitch_white == null:
+		var img := Image.create(4, 4, false, Image.FORMAT_RGBA8)
+		img.fill(Color(1, 1, 1, 1))
+		_glitch_white = ImageTexture.create_from_image(img)
+	return _glitch_white
 
 var _wall_torch_pos: Array = []   # placed wall-sconce positions (for spacing)
 
 func _build_walls() -> void:
 	_wall_torch_pos.clear()
+	# Cyber 2077 redesign: no square wall caps. The whole non-room area is one solid
+	# dark building mass; rooms are floor cut into it; rectangular facades (door /
+	# windows / circuits) stand along room edges as in-proportion set-pieces.
+	if theme == "cyber2077":
+		_build_walls_building()
+		return
+	if theme == "suburb":
+		_build_walls_suburb()
+		return
 	for y in _fh:
 		for x in _fw:
 			if not _wall[y][x]:
 				continue
-			# only solid cells touching a floor cell get rendered/collide —
-			# deep rock stays an unlit void (cheap + reads as walls with mass)
+			# Interior solid cells (no floor neighbour) get NO collision/face — but they
+			# still need a top tile, otherwise the floor (drawn under the whole grid)
+			# shows straight through the middle of a wall slab, so the wall reads as
+			# full of diamond holes. Paint a plain cap so the mass is continuous.
 			if not _touches_floor(x, y):
+				var fill := Sprite2D.new()
+				var ftex: Texture2D = _glitch_white_tex() if theme == "glitch" else _wall_top_texture()
+				var fts: float = float(ftex.get_width())
+				fill.texture = ftex
+				fill.position = Vector2((x + 0.5) * tile, (y + 0.5) * tile)
+				fill.scale = Vector2(tile / fts, tile / fts)
+				fill.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if _is_custom_theme() else CanvasItem.TEXTURE_FILTER_LINEAR
+				if theme == "glitch":
+					fill.z_index = 2
+					add_child(fill)
+					fill.add_to_group("glitch_wall")
+					continue
+				fill.modulate = Color(0.72, 0.72, 0.78)   # slightly shaded — reads as "deep" rock
+				fill.z_index = 2
+				add_child(fill)
 				continue
 			var body := StaticBody2D.new()
 			body.add_to_group("walls")
@@ -367,6 +679,10 @@ func _build_walls() -> void:
 			cs.shape = rect
 			body.add_child(cs)
 			var wt: Texture2D = _wall_texture()
+			var top_tex: Texture2D = _wall_top_texture()
+			if theme == "glitch":
+				wt = _glitch_white_tex()
+				top_tex = wt
 			var ts: float = float(wt.get_width())
 			# Pseudo-3/4 "face": if this wall faces a room to the SOUTH, draw a
 			# darker front face extending down so the wall reads as having height
@@ -375,22 +691,34 @@ func _build_walls() -> void:
 				# Backrooms uses a taller face (steeper "angle" — more wall visible).
 				var fh: float = BK_WALL_FACE if theme == "backrooms" else 0.5
 				var fy: float = tile * (0.5 + fh * 0.5) if theme == "backrooms" else tile * 0.55
+				# Themed levels: configurable face height (taller = walls read as bigger
+				# standing rectangles). wall_face_override drives the height test.
+				if _is_custom_theme():
+					fh = wall_face_override if wall_face_override > 0.0 else float(_lvl_cfg.get("wall_face", 0.5))
+					fy = tile * (0.5 + fh * 0.5)
 				var face := Sprite2D.new()
 				face.name = "Face"
 				face.texture = wt
 				face.scale = Vector2(tile / ts, (tile * fh) / ts)
 				face.position = Vector2(0, fy)
-				face.modulate = Color(0.5, 0.5, 0.56)   # shaded front face
-				face.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+				# Themed levels can keep the face bright (so lit windows still read);
+				# stone/backrooms faces stay heavily shaded for the 3/4 "angle".
+				var face_shade: float = float(_lvl_cfg.get("face_shade", 0.5)) if _is_custom_theme() else 0.5
+				face.modulate = Color(face_shade, face_shade, face_shade + 0.06)
+				face.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if _is_custom_theme() else CanvasItem.TEXTURE_FILTER_LINEAR
 				face.z_index = 1
 				body.add_child(face)
+				if theme == "glitch":
+					face.add_to_group("glitch_wall")
 			var spr := Sprite2D.new()
 			spr.name = "Top"
-			spr.texture = wt
+			spr.texture = top_tex
 			spr.scale = Vector2(tile / ts, tile / ts)
-			spr.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+			spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST if _is_custom_theme() else CanvasItem.TEXTURE_FILTER_LINEAR
 			spr.z_index = 2
 			body.add_child(spr)
+			if theme == "glitch":
+				spr.add_to_group("glitch_wall")
 			var occ := LightOccluder2D.new()
 			var poly := OccluderPolygon2D.new()
 			var h := tile / 2.0
@@ -401,12 +729,97 @@ func _build_walls() -> void:
 			add_child(body)
 			# Wall-mounted torch sconce on walls that face a room below — a warm
 			# flickering glow on the stone (atmospheric "lights on the wall").
-			if theme != "backrooms" and y + 1 < _fh and not _wall[y + 1][x] and randf() < 0.06:
+			if theme != "backrooms" and not _is_custom_theme() and y + 1 < _fh and not _wall[y + 1][x] and randf() < 0.06:
 				var tpos := Vector2((x + 0.5) * tile, (y + 0.5) * tile + tile * 0.42)
 				# Never cluster wall sconces — keep them ≥6 blocks apart.
 				if not _pos_too_close(tpos, _wall_torch_pos, tile * 6.0):
 					_wall_torch_pos.append(tpos)
 					_add_wall_torch(tpos, body, occ)
+
+# ── Cyber 2077: solid building mass + facade set-pieces ──────────────────────
+func _build_walls_building() -> void:
+	var btex: Texture2D = _ctex("res://assets/cyber2077/walls/building.png")
+	if btex == null:
+		btex = _wall_texture()
+	var disp: Texture2D = _upscale_tex(btex, 64)
+	var bts: float = float(disp.get_width())
+	for y in _fh:
+		for x in _fw:
+			if not _wall[y][x]:
+				continue
+			# Every solid cell is painted with the dark building tile → one continuous
+			# mass, no isolated dark squares, no black voids behind walls.
+			var s := Sprite2D.new()
+			s.texture = disp
+			s.position = Vector2((x + 0.5) * tile, (y + 0.5) * tile)
+			s.scale = Vector2(tile / bts, tile / bts)
+			s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			s.z_index = -10
+			add_child(s)
+			# Collision + light occluder only where the mass borders a room.
+			if not _touches_floor(x, y):
+				continue
+			var body := StaticBody2D.new()
+			body.add_to_group("walls")
+			body.position = Vector2((x + 0.5) * tile, (y + 0.5) * tile)
+			body.collision_layer = 1
+			body.collision_mask = 0
+			var cs := CollisionShape2D.new()
+			var rect := RectangleShape2D.new()
+			rect.size = Vector2(tile, tile)
+			cs.shape = rect
+			body.add_child(cs)
+			var occ := LightOccluder2D.new()
+			var poly := OccluderPolygon2D.new()
+			var h := tile / 2.0
+			poly.polygon = PackedVector2Array([Vector2(-h, -h), Vector2(h, -h), Vector2(h, h), Vector2(-h, h)])
+			occ.occluder = poly
+			body.add_child(occ)
+			add_child(body)
+	_spawn_facades()
+
+func _spawn_facades() -> void:
+	# Stand the rectangular facade art (door / windows / circuits) along room TOP
+	# edges as upright set-pieces — aspect locked, scaled up, never squared.
+	var names: Array = _lvl_cfg.get("facades", ["fac_door", "fac_windows", "fac_circuits"])
+	var pool: Array = []
+	for n in names:
+		var t: Texture2D = _ctex("res://assets/cyber2077/props/%s.png" % String(n))
+		if t != null:
+			pool.append(t)
+	if pool.is_empty():
+		return
+	for room in _rooms:
+		if room == _start_room or room == _boss_room:
+			continue
+		if randf() > 0.72:
+			continue
+		var top_y: float = float(room.position.y) * tile          # room's top floor edge
+		var n: int = randi_range(1, 2) if room.size.x >= 6 else 1
+		var used_x: Array = []
+		for i in n:
+			var t: Texture2D = pool[randi() % pool.size()]
+			# INTEGER upscale (3×) so the facade pixels don't shimmer/jitter when the
+			# camera moves (non-integer scale + nearest filter = crawling pixels).
+			var disp: Texture2D = _upscale_tex(t, t.get_width() * 3)
+			var H: float = float(disp.get_height())
+			var W: float = float(disp.get_width())
+			var fx: float = (float(room.position.x) + randf_range(1.2, maxf(1.2, float(room.size.x) - 1.2))) * tile
+			if _pos_too_close(Vector2(fx, top_y), used_x, W * 0.9):
+				continue
+			used_x.append(Vector2(fx, top_y))
+			var spr := Sprite2D.new()
+			spr.texture = disp
+			spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			# Base sits at the floor edge; the facade stands UP (north) into the wall.
+			spr.position = Vector2(fx, top_y - H * 0.5 + tile * 0.35)
+			# Wall decoration: sits in the building mass, always BEHIND the player/enemies
+			# (above the building tile at -10, below the player at 0).
+			spr.z_index = -5
+			add_child(spr)
+			# a soft sign glow on some facades
+			if randf() < 0.5:
+				_glow(spr.position, _lvl_cfg.get("amb", Color(0.2, 0.6, 0.9)).lerp(Color(0.4, 0.9, 1.0), 0.7), 0.6, 2.4)
 
 func _touches_floor(x: int, y: int) -> bool:
 	var dirs: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
@@ -422,14 +835,27 @@ func _spawn_player() -> void:
 	_player = PlayerScene.instantiate()
 	_player.position = _room_center_world(_start_room)
 	add_child(_player)
-	var bonus: int = ArpgState.bonus_max_health()
-	if bonus > 0 and "max_health" in _player:
-		_player.max_health = int(_player.max_health) + bonus
-	# Apply shop move-speed upgrade (fresh instance each floor, so multiply once).
-	if ArpgState.speed_mult != 1.0 and "speed" in _player:
-		_player.speed = float(_player.speed) * ArpgState.speed_mult
+	# Single source of truth for max HP + base speed (includes the +HP cards). Doing
+	# it manually here on top of apply_boons() double-counted the bonus → "15/11".
+	if _player.has_method("apply_boons"):
+		_player.apply_boons()   # now folds in ArpgState.speed_mult itself (no manual re-mult)
 	if _player.has_method("heal"):
-		_player.heal(9999)
+		# Between-floor healing is now gated by difficulty/ascension — you no longer get
+		# topped off to full every floor (that let you face-tank with no consequence).
+		#   • Floor 1 / Easy (no ascension): full heal (fresh start / casual).
+		#   • Medium OR any ascension: heal only 50% of MISSING health.
+		#   • Hard: NO heal between floors — you carry your damage forward.
+		var full := true
+		if int(ArpgState.depth) > 1:
+			if GameSettings.difficulty == GameSettings.Difficulty.HARD:
+				full = false   # 0% — handled below as no heal
+			elif GameSettings.difficulty == GameSettings.Difficulty.MEDIUM or GameSettings.ascension >= 1:
+				full = false
+				var mh: int = int(_player.get("max_health"))
+				var cur: int = int(_player.get("health"))
+				_player.heal(int(round(float(mh - cur) * 0.5)))   # 50% of the gap
+		if full:
+			_player.heal(9999)   # Easy / floor 1: top off to max
 	if _player.has_signal("died") and not _player.died.is_connected(_on_player_died):
 		_player.died.connect(_on_player_died)
 	# 20% chance a Dark Bear shows up as a companion for the run.
@@ -446,37 +872,65 @@ func _spawn_player() -> void:
 		# shadows that left an ugly hard line where lit floor met the wall. With
 		# shadows off the aura is a clean smooth gradient everywhere.
 		torch.shadow_enabled = false
-		if theme == "backrooms":
-			# Flat fluorescent space is already fully lit — no player light aura.
+		if _flat_lit():
+			# Flat fully-lit space — no player light aura.
 			torch.visible = false
 			torch.energy = 0.0
 
 func _spawn_boss() -> void:
-	# 50/50: the classic dark-bear guardian (star spread + AoE slam) OR the Army Bear
-	# (keeps its distance, calls in airstrike clusters). Both read as the floor boss.
-	var use_army: bool = randf() < 0.5
-	_boss = (ArmyBearScene if use_army else EnemyScene).instantiate()
+	# Floor-boss roster, evenly rolled:
+	#   Party Animal — panda rave (disco craters + party hats + projectiles)
+	#   Army Bear    — kites at range, calls in airstrike clusters
+	#   Original Boss— the dark-bear guardian (star spread + ground/paw slam, phases)
+	#   Desert Charger — dash-charges, summons adds, pillars + slam (phases)
+	# The last two are self-contained boss scenes (native size, no rig hacks).
+	var roll: float = randf()
+	var scene: PackedScene
+	var hits: float          # how many of YOUR volleys the boss should take to kill
+	var rig_k: float = 1.0   # extra rig scale; 1.0 = use the scene's native size
+	if roll < 0.25:
+		scene = PartyAnimalScene; hits = 44.0; rig_k = 1.6   # 2x tanky — its big hitbox dies too fast otherwise
+	elif roll < 0.50:
+		scene = ArmyBearScene; hits = 28.0; rig_k = 1.5   # kites at range → a few more
+	elif roll < 0.75:
+		scene = BossScene; hits = 20.0
+	else:
+		scene = DesertBossScene; hits = 18.0
+	_boss = scene.instantiate()
 	_boss.position = _room_center_world(_boss_room)
-	# The Army Bear kites at range, so it gets fewer chances to be hit — give it ~40%
-	# more HP so it's an actual fight instead of melting in a few seconds.
-	_boss_max_hp = int(round(ArpgState.boss_hp() * (1.4 if use_army else 1.0)))
+	# FIXED-HIT boss HP: scale to the player's CURRENT per-volley damage so the boss always
+	# takes ~`hits` volleys to kill whether you hit for 8 or 80. The fight length is constant
+	# regardless of power level (Ascension still adds its bump on top).
+	var per_volley: int = maxi(1, ArpgState.weapon_damage() * ArpgState.weapon_count())
+	_boss_max_hp = maxi(40, int(round(float(per_volley) * hits)))
+	# Ascension HP curses (stack on top of the fixed-hit baseline):
+	#   Asc 2 FORTIFIED FOES — every regular floor boss gains +30% HP
+	#   Asc 5 FINAL TANK     — only the floor-10 final boss gains +50% HP
+	if ArpgState.depth >= FINAL_FLOOR:
+		if GameSettings.ascension >= 5:
+			_boss_max_hp = int(round(float(_boss_max_hp) * 1.5))
+	elif GameSettings.ascension >= 2:
+		_boss_max_hp = int(round(float(_boss_max_hp) * 1.3))
 	_boss.set("is_boss", true)          # boss HP bar + huge stain + death explosion
 	if "touch_damage" in _boss:
 		_boss.touch_damage = 2
 	add_child(_boss)
-	# Set HP *after* add_child: critter-based bosses (Army Bear) run their _ready on
-	# add and reset max_health to their small crit_hp default — which made the Army
-	# Bear one-shot. Assigning here wins, and we refresh current health to full.
+	# Set HP *after* add_child: self-running bosses reset max_health in their _ready, so
+	# assigning here wins and we refresh current health to full.
 	if "max_health" in _boss:
 		_boss.max_health = _boss_max_hp
 		_boss.health = _boss_max_hp
-	var rig := _boss.get_node_or_null("Rig") as Node2D
-	if rig != null:
-		if use_army:
-			rig.scale *= 1.5            # already a big cutout — just bulk it up
-		else:
-			rig.scale *= 1.8
-			rig.modulate = Color(1.25, 0.55, 0.55)
+	# Only the enemy/critter bosses get up-scaled (+ matching hitbox). The standalone
+	# boss scenes already ship at their intended size.
+	if rig_k != 1.0:
+		var rig := _boss.get_node_or_null("Rig") as Node2D
+		if rig != null:
+			rig.scale *= rig_k
+		var cs := _boss.get_node_or_null("CollisionShape2D") as CollisionShape2D
+		if cs != null and cs.shape is RectangleShape2D:
+			var sh := (cs.shape as RectangleShape2D).duplicate() as RectangleShape2D
+			sh.size = Vector2(sh.size.x * rig_k, sh.size.y * rig_k * 1.4)
+			cs.shape = sh
 
 func _boss_is_dead() -> bool:
 	# A dying enemy leaves the "enemies" group at the START of its death anim
@@ -543,15 +997,17 @@ func _add_fill_light(pos: Vector2, color: Color, energy: float, scl: float) -> P
 	return fl
 
 func _add_wall_torch(pos: Vector2, wall_body: Node = null, occ: LightOccluder2D = null) -> void:
-	# Disable THIS wall's own occluder so the torch can glow from the candle itself
-	# (instead of being shoved down into the room to escape its own shadow). Other
-	# walls keep their occluders, so the torch light still doesn't pass through them.
-	if occ != null:
-		occ.set_deferred("visible", false)
+	# Candelabra-style lighting: the lit area is "whatever can SEE the front-middle of
+	# this brick". So the shadow-casting light sits just in FRONT of the wall face (on
+	# the room side) with ALL occluders — including this brick's own — left ON. The wall
+	# behind blocks backward/through-wall bleed; neighbouring walls carve the natural
+	# diagonal pools. (Previously the light was shoved UP into the brick and this cell's
+	# occluder disabled to dodge self-shadow — which is exactly what leaked light through
+	# the wall on corner pieces.)
 	var lamp := PointLight2D.new()
 	lamp.texture = LightTex
-	# Light sits ON the candle (matches the sconce sprite), so the flame glows.
-	lamp.position = pos - Vector2(0, tile * 0.20)
+	# Just past the brick's front (room-facing) edge — its middle-front point.
+	lamp.position = pos + Vector2(0, tile * 0.12)
 	lamp.color = Color(1.0, 0.64, 0.30)
 	lamp.energy = 0.94
 	lamp.texture_scale = 2.6     # double the wall-torch light range (was 1.3)
@@ -654,6 +1110,22 @@ func _spawn_braziers() -> void:
 		cand.z_index = 3
 		cand.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
 		add_child(cand)
+		# NO self-occluder: the light sits at the flames (above the base), so an occluder
+		# at the base threw a hugely divergent shadow wedge fanning across the floor (the
+		# "candelabra cone" bug). The flame light still casts real shadows off WALLS — that
+		# was always the point. For grounding, a flat contact shadow is painted under the
+		# base instead (a decal that ignores lighting, so it can't diverge).
+		var shadow := Polygon2D.new()
+		var sr: float = tile * 0.34
+		var pts := PackedVector2Array()
+		for k in range(14):
+			var a: float = TAU * float(k) / 14.0
+			pts.append(Vector2(cos(a) * sr, sin(a) * sr * 0.42))
+		shadow.polygon = pts
+		shadow.color = Color(0, 0, 0, 0.28)
+		shadow.position = pos + Vector2(0, tile * 0.30)   # pooled at the foot of the stand
+		shadow.z_index = 2                                 # under the candelabra sprite (z=3)
+		add_child(shadow)
 		_braziers.append({"node": lamp, "base": 1.54, "phase": randf() * TAU})
 
 func _spawn_stalagmites() -> void:
@@ -794,27 +1266,32 @@ func _cell_in_room(r: Rect2i) -> Vector2:
 # with only the first couple, then a new type joins the spawn pool every ~38s.
 # Deeper floors start further along the schedule (more variety up front).
 const WAVE_UNLOCKS: Array = [
-	SkeletonScene,        # 0  pure melee halberd — the gentle intro
-	SwordSkeletonScene,   # 1  sword bruiser — winds up a melee swing (both skels open the floor)
+	SkeletonScene,        # 0  skeleton — the gentle melee intro
+	EnemyScene,           # 1  KK bear — opens the floor alongside the skeletons; fire RATE scales by depth
 	SealScene,            # 2  Long Bear — blocker, doesn't even attack
 	DucklingScene,        # 3  weak fast swarmer
-	CreamBearScene,       # 4  basic melee critter
-	BeanieBearScene,      # 5  lobs slow beanies
-	HoundScene,           # 5  pounce
-	GunBearScene,         # 6  burst rifle
-	GrowlerScene,         # 7  archer
-	FrostCubScene,        # 8  freeze orb
-	TeddyBearScene,       # 9  suicide bomber
-	ShrinkwrapBearScene,  # 10 air puff
-	EnemyScene,           # 11 KK — stars + paw
-	PlushBrawlerScene,    # 12 charger
+	PaleBearScene,        # 4  white plush — fast, weak swarmer
+	CreamBearScene,       # 5  basic melee critter
+	YarnBearScene,        # 6  tangled-in-yarn melee chaser
+	BeanieBearScene,      # 7  lobs slow beanies
+	HoundScene,           # 8  pounce
+	GunBearScene,         # 9  burst rifle
+	GrowlerScene,         # 10 archer
+	FrostCubScene,        # 11 freeze orb
+	TeddyBearScene,       # 12 suicide bomber
+	ShrinkwrapBearScene,  # 13 air puff
+	PotBearScene,         # 14 pressure-cooker bear — slow, tanky bruiser
+	SwordSkeletonScene,   # 15 sword skeleton — melee bruiser on deeper floors
+	PlushBrawlerScene,    # 16 charger
 ]
 const WAVE_UNLOCK_INTERVAL: float = 60.0   # a new enemy type joins every minute
 const WAVE_NAMES: Dictionary = {
 	"skeleton": "SKELETON", "sword_skeleton": "SWORD SKELETON", "seal": "LONG BEAR", "duckling": "DUCKLING",
-	"cream_bear": "CREAM BEAR", "beanie_bear": "BEANIE BEAR", "hound": "HOUND",
+	"cream_bear": "CREAM BEAR", "pale_bear": "PALE BEAR", "yarn_bear": "YARN BEAR",
+	"pot_bear": "PRESSURE BEAR", "beanie_bear": "BEANIE BEAR", "hound": "HOUND",
 	"gun_bear": "GUN BEAR", "growler": "ARCHER", "frost_cub": "FROST CUB",
 	"teddy_bear": "TEDDY BEAR", "shrinkwrap_bear": "SHRINKWRAP", "enemy": "KK BEAR",
+	"kk_pup": "KK PUP",
 	"plush_brawler": "BRAWLER",
 }
 
@@ -822,13 +1299,14 @@ var _wave_t: float = 0.0
 var _wave_spawn_t: float = 0.0
 var _wave_started: bool = false
 var _wave_last_unlocked: int = 0
-var _event_t: float = 70.0   # countdown to the next themed RUSH event
+var _event_t: float = 35.0   # countdown to the FIRST themed RUSH event
 var _cluster_t: float = 22.0 # countdown to the next tight same-type CLUSTER charge
 const RUSH_DURATION: float = 15.0      # a RUSH lasts this long (screen inverted the whole time)
 var _rush_active_t: float = 0.0        # >0 while a rush is ongoing
 var _rush_spawn_t: float = 0.0         # cadence for sustained rush spawns
 var _rush_scene: PackedScene = null    # the one enemy type pouring in this rush
 var _mm_redraw_t: float = 0.0   # minimap redraw throttle
+var _last_fog_cell: Vector2i = Vector2i(-99999, -99999)   # only re-reveal fog on cell change
 var _stats_sample_t: float = 0.0   # analytics alive-count sampler
 var _minimap_on: bool = true    # M toggles it (FPS A/B test)
 var _hud_time_tl: Label = null
@@ -875,10 +1353,10 @@ func _wave_tick(delta: float) -> void:
 	# bears, etc.). The fun chaos beat.
 	# No rush while a boss fight is live — the boss is enough chaos on its own.
 	var boss_fight: bool = _boss_alerted and not _boss_dead
-	if _wave_t > 40.0 and _rush_active_t <= 0.0 and not boss_fight:
+	if _wave_t > 15.0 and _rush_active_t <= 0.0 and not boss_fight:
 		_event_t -= delta
 		if _event_t <= 0.0:
-			_event_t = randf_range(55.0, 85.0)
+			_event_t = randf_range(70.0, 105.0)   # ~1 rush every 1.5 min (was way too frequent)
 			_trigger_rush_event()
 	# Active RUSH window: lights stay doused and one enemy type keeps pouring in for
 	# ~15s, then the lights come back. Pure timer — no "kill them all" gate.
@@ -1021,7 +1499,12 @@ func _wave_alive_cap() -> int:
 		0: base = 12   # EASY
 		2: base = 26   # HARD
 	var grown: int = base + int(_wave_t / 22.0) * 3
-	return mini(int(round(float(grown) * _wave_power())), 55)
+	var amt: float = float(grown) * _wave_power()
+	var ceil_cap: int = 55
+	if GameSettings.ascension >= 1:
+		amt *= 1.5        # Asc 1 FLOODED FLOORS curse: +50% enemies per floor
+		ceil_cap = 72
+	return mini(int(round(amt)), ceil_cap)
 
 func _wave_interval() -> float:
 	return maxf(0.85, (3.4 - _wave_t / 90.0) / _wave_power())
@@ -1057,21 +1540,30 @@ func _configure_enemy(e: Node) -> void:
 	if "max_health" in e:
 		var base_hp: int = int(e.max_health)
 		var diff: float = _difficulty_hp_mult()
-		var hp_power_mult: float = sqrt(ArpgState.challenge_ratio())
-		e.max_health = int(round(float(base_hp) * 6.0 * diff * hp_power_mult)) + 3 + int(ArpgState.depth - 1) * 4
+		# Power scaling now tracks how over-powered you are much more aggressively: the
+		# old sqrt() flattened a 3.5x challenge_ratio down to ~1.87x, so a nuke build
+		# still one-shot everything. Use the ratio almost directly (pow 0.85) so spongy
+		# enemies actually keep pace with a runaway build.
+		var hp_power_mult: float = pow(ArpgState.challenge_ratio(), 0.85)
+		e.max_health = int(round(float(base_hp) * 7.0 * diff * hp_power_mult)) + 3 + int(ArpgState.depth - 1) * 5
 		e.set("health", e.max_health)
-		# Enemies hit a little harder the deeper you go (+1 contact dmg every 3 floors).
+		# Contact damage ramps faster (+1 every 2 floors, was every 3) so face-tanking
+		# deep floors actually costs you.
 		if "touch_damage" in e:
-			e.touch_damage = int(e.touch_damage) + int((ArpgState.depth - 1) / 3)
+			e.touch_damage = int(e.touch_damage) + int((ArpgState.depth - 1) / 2)
 
 func _apply_brightness(level: int, announce: bool = true) -> void:
 	# Overall darkness preset (1=dark/moody, 2=medium, 3=bright). Lifts the global
 	# ambient floor + the player aura together. Persists across floors via ArpgState.
 	level = clampi(level, 1, 3)
 	ArpgState.brightness_level = level
-	if theme == "backrooms":
-		return
-	var amb: Color = [Color(0.15, 0.14, 0.21), Color(0.27, 0.25, 0.32), Color(0.40, 0.38, 0.45)][level - 1]
+	if _flat_lit():
+		return   # flat-lit themes keep their bright ambient; brightness preset doesn't apply
+	# Lifted the darkest preset so floors/walls read instead of sinking into murk
+	# (the "everything's too dark and muddy" complaint) while staying moody.
+	var amb: Color = [Color(0.21, 0.20, 0.26), Color(0.31, 0.29, 0.36), Color(0.42, 0.40, 0.47)][level - 1]
+	if theme == "damp":
+		amb = amb * 1.15   # +15% global light for the damp dungeon (user request)
 	var energy: float = [0.8, 1.05, 1.3][level - 1]
 	if _ambient != null:
 		_ambient.color = amb
@@ -1307,12 +1799,13 @@ func _spawn_items() -> void:
 		c.radius = 30.0
 		cs.shape = c
 		area.add_child(cs)
-		var lamp := PointLight2D.new()
-		lamp.texture = LightTex
-		lamp.color = Color(1.0, 0.55, 0.55)   # warm red glow = health pickup
-		lamp.energy = 0.9
-		lamp.texture_scale = 0.9
-		area.add_child(lamp)
+		if not _flat_lit():   # flat-lit levels (hand / cyber2077): no pickup aura
+			var lamp := PointLight2D.new()
+			lamp.texture = LightTex
+			lamp.color = Color(1.0, 0.55, 0.55)   # warm red glow = health pickup
+			lamp.energy = 0.9
+			lamp.texture_scale = 0.9
+			area.add_child(lamp)
 		# Heal-heart icon instead of a diamond — reads as a health pickup.
 		var heart := Sprite2D.new()
 		heart.texture = HealIconTex
@@ -1330,16 +1823,13 @@ func _spawn_items() -> void:
 
 # ── runtime ────────────────────────────────────────────────────────────────
 func _process(delta: float) -> void:
-	# FPS counter (updates even while paused).
-	_fps_t -= delta
-	if _hud_fps != null and _fps_t <= 0.0:
-		_fps_t = 0.25
-		_hud_fps.text = "%d fps" % int(round(Engine.get_frames_per_second()))
 	# Total run timer ticks continuously (not gated by the wave start, so it shows
 	# carried-over time the instant a new floor loads).
 	if _hud_time_total != null:
 		var rt: int = int(ArpgState.run_time)
 		_hud_time_total.text = "Σ %d:%02d" % [rt / 60, rt % 60]
+	_update_perf_overlay(delta)
+	_log_hitch_if_any(delta)
 	if get_tree().paused:
 		return   # stats screen / popups paused us — don't run gameplay or waves
 	_wave_tick(delta)
@@ -1347,15 +1837,26 @@ func _process(delta: float) -> void:
 		_camera.position = _player.position
 		if _fog_mat != null:
 			_fog_mat.set_shader_parameter("cam_pos", _camera.position)
+		# Fog reveal is EVENT-DRIVEN: only repaint the 7x7 block when the player crosses into
+		# a new cell, instead of rebuilding 49 string keys every single frame (alloc churn /
+		# GC stutter). Standing still or sliding within a cell costs nothing now.
 		var f := world_to_fine(_player.position)
-		for dy in range(-3, 4):
-			for dx in range(-3, 4):
-				_explored["%d,%d" % [int(f.x) + dx, int(f.y) + dy]] = true
+		var fcell := Vector2i(int(f.x), int(f.y))
+		# CHUNKED reveal: only when the player moves a few cells away from the last reveal
+		# point do we light up a big block around them — then nothing until they reach its
+		# edge. Way fewer updates than re-revealing every step.
+		if Vector2(fcell - _last_fog_cell).length() >= 4.0:
+			_last_fog_cell = fcell
+			for dy in range(-6, 7):
+				for dx in range(-6, 7):
+					_explored["%d,%d" % [fcell.x + dx, fcell.y + dy]] = true
 	for b in _braziers:
 		var lamp: PointLight2D = b["node"]
 		if is_instance_valid(lamp):
-			b["phase"] += delta * 9.0
-			lamp.energy = b["base"] * (0.86 + 0.14 * sin(b["phase"]) + randf() * 0.05)
+			# Slow, calm candle pulse. (Was 9.0 rad/s + a per-FRAME randf jitter, which
+			# read as fast strobing — dropped the jitter and slowed the pulse ~80%.)
+			b["phase"] += delta * 1.8
+			lamp.energy = b["base"] * (0.90 + 0.10 * sin(b["phase"]))
 	# Boss encounter: alert + reveal health bar when the player gets close.
 	if not _boss_alerted and not _boss_dead and is_instance_valid(_boss) and is_instance_valid(_player):
 		if _player.global_position.distance_to((_boss as Node2D).global_position) < 460.0:
@@ -1373,7 +1874,7 @@ func _process(delta: float) -> void:
 	if not _boss_dead and _boss != null and _boss_is_dead():
 		_boss_dead = true
 		if _exit_node != null:
-			_exit_node.visible = true
+			_exit_node.global_position = ((_boss as Node2D).global_position if floor_at_world((_boss as Node2D).global_position) else floor_point_near((_boss as Node2D).global_position, 0.0, tile * 2.5, false)); _exit_pos = _exit_node.global_position; _exit_node.visible = true
 		if _hud_boss_root != null:
 			_hud_boss_root.visible = false
 		_on_toast("Guardian slain — the descent opens!", Color(1.0, 0.85, 0.45))
@@ -1406,8 +1907,51 @@ func _on_exit() -> void:
 		return   # exit stays shut until the boss dies — no nag toast
 	_cleared = true
 	Engine.time_scale = 1.0   # never carry slow-mo into the next scene
+	# Floor 10 is the finale — clearing its guardian WINS the run (and unlocks the
+	# next ascension). Earlier floors just move on to the merchant.
+	if ArpgState.depth >= FINAL_FLOOR:
+		_win_game()
+		return
+	# Entered via a HUB door → clearing this room sends you back to the Hub for the next pick.
+	if ArpgState.return_to_hub:
+		ArpgState.return_to_hub = false
+		get_tree().change_scene_to_file("res://scenes/hub.tscn")
+		return
 	ArpgState.descend()
 	get_tree().change_scene_to_file("res://scenes/shop.tscn")
+
+# ── floor-10 victory ─────────────────────────────────────────────────────────
+const FINAL_FLOOR: int = 10
+const FINAL_FLUFF_REWARD: int = 25
+const FINAL_COTTON_REWARD: int = 50
+
+func _win_game() -> void:
+	Stats.note_floor(ArpgState.depth)
+	Stats.end_run("won")
+	var asc: int = GameSettings.ascension
+	var mult: float = 1.0 + 0.2 * float(asc)
+	var fluff_gain: int = int(round(float(FINAL_FLUFF_REWARD) * mult))
+	var cotton_gain: int = int(round(float(FINAL_COTTON_REWARD) * mult))
+	MetaSave.add_fluff(fluff_gain)
+	MetaSave.add_cotton(cotton_gain)
+	MetaSave.record_victory()
+	# Beating the run at your current max ascension opens up the next one.
+	if asc >= MetaSave.max_ascension and MetaSave.max_ascension < 5:
+		MetaSave.unlock_ascension_up_to(MetaSave.max_ascension + 1)
+	get_tree().paused = true
+	var screen := preload("res://scenes/victory_screen.tscn").instantiate()
+	screen.fluff_reward = fluff_gain
+	screen.cotton_reward = cotton_gain
+	screen.ascension_beaten = asc
+	# Play again → back to the loadout so you can pick a (newly unlocked) ascension.
+	screen.restart_requested.connect(func() -> void:
+		get_tree().paused = false
+		get_tree().change_scene_to_file("res://scenes/loadout_screen.tscn"))
+	screen.menu_requested.connect(func() -> void:
+		get_tree().paused = false
+		ArpgState.active = false
+		get_tree().change_scene_to_file("res://scenes/title_screen.tscn"))
+	add_child(screen)
 
 # ── Backrooms boss-portal (10% on boss death) ───────────────────────────────
 func _spawn_backrooms_portal(pos: Vector2) -> void:
@@ -1455,6 +1999,9 @@ func _enter_backrooms_portal() -> void:
 	Engine.time_scale = 1.0
 	ArpgState.descend()
 	ArpgState.backrooms_next = true            # next floor renders as backrooms
+	# Authored descent: after the backrooms stage you spill into the POOL ROOMS, then
+	# the FIELD OF WHEAT, before the run returns to the normal random biome rotation.
+	ArpgState.scripted_queue = ["res://scenes/poolrooms.tscn", "res://scenes/wheat.tscn"]
 	get_tree().change_scene_to_file(ArpgState.dungeon_path)   # skip the merchant — straight in
 
 func floor_at_world(w: Vector2) -> bool:
@@ -1503,8 +2050,11 @@ func _on_player_died() -> void:
 	await get_tree().create_timer(3.4, true).timeout
 	_show_game_over()
 
-const _StuffingTex := preload("res://assets/stuffing.png")
-const _DripCream := Color(0.96, 0.92, 0.83)   # plushie stuffing colour
+# Nosifer (dripping-blood) display font — PRELOADED so it's packed into the export.
+# (The old runtime FontFile.load_dynamic_font() reads a res:// path that doesn't exist
+# inside the exported PCK, so it silently fell back to the default font — the "old"
+# plain YOU DIED players were still seeing on the biome levels.)
+const DeathFont := preload("res://assets/nosifer.ttf")
 
 func _show_game_over() -> void:
 	if has_node("GameOverLayer"):
@@ -1535,11 +2085,8 @@ func _show_game_over() -> void:
 	var title := Label.new()
 	title.text = "YOU DIED"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	# Real "Nosifer" dripping-blood display font (Google Fonts, OFL). Loaded
-	# directly from the .ttf so it works whether or not Godot has imported it.
-	var death_font := FontFile.new()
-	if death_font.load_dynamic_font("res://assets/nosifer.ttf") == OK:
-		title.add_theme_font_override("font", death_font)
+	# Real "Nosifer" dripping-blood display font (Google Fonts, OFL).
+	title.add_theme_font_override("font", DeathFont)
 	title.add_theme_font_size_override("font_size", 96)
 	title.add_theme_color_override("font_color", Color(0.58, 0.05, 0.05))
 	title.add_theme_color_override("font_outline_color", Color(0.06, 0.0, 0.0, 1.0))
@@ -1592,50 +2139,6 @@ func _show_game_over() -> void:
 		if is_instance_valid(retry):
 			retry.grab_focus())
 
-
-func _spawn_death_drips(layer: CanvasLayer, title: Label) -> void:
-	var rect := Rect2(title.global_position, title.size)
-	var top := rect.position.y + rect.size.y * 0.62
-	# Oozing stuffing drips — rounded cream capsules that slowly grow downward.
-	for i in 16:
-		var w: float = randf_range(7.0, 16.0)
-		var x: float = rect.position.x + rect.size.x * randf_range(0.06, 0.94)
-		var drip := Panel.new()
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = _DripCream.lerp(Color(0.85, 0.32, 0.30), randf() * 0.35)  # mostly fluff, faint blood tint
-		sb.set_corner_radius_all(int(w * 0.5))
-		drip.add_theme_stylebox_override("panel", sb)
-		drip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		drip.position = Vector2(x - w * 0.5, top + randf_range(-6.0, 8.0))
-		drip.size = Vector2(w, 0.0)
-		layer.add_child(drip)
-		var len: float = randf_range(40.0, 170.0)
-		var dur: float = randf_range(1.3, 2.6)
-		var tw := drip.create_tween().set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-		tw.tween_interval(randf() * 0.7)
-		tw.tween_property(drip, "size:y", len, dur)
-		tw.parallel().tween_property(drip, "modulate:a", 0.25, dur).set_delay(dur * 0.4)
-	# Fluff motes drifting down from the wound.
-	for j in 10:
-		var f := TextureRect.new()
-		f.texture = _StuffingTex
-		f.modulate = Color(_DripCream.r, _DripCream.g, _DripCream.b, 0.0)
-		f.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		var s: float = randf_range(0.18, 0.4)
-		f.scale = Vector2(s, s)
-		var fx: float = rect.position.x + rect.size.x * randf_range(0.0, 1.0)
-		var fy: float = top + randf_range(0.0, 20.0)
-		f.position = Vector2(fx, fy)
-		layer.add_child(f)
-		var fall: float = randf_range(120.0, 280.0)
-		var fdur: float = randf_range(1.8, 3.2)
-		var ftw := f.create_tween().set_parallel(true).set_trans(Tween.TRANS_SINE)
-		ftw.tween_property(f, "position:y", fy + fall, fdur).set_ease(Tween.EASE_IN)
-		ftw.tween_property(f, "position:x", fx + randf_range(-40.0, 40.0), fdur)
-		ftw.tween_property(f, "rotation", randf_range(-1.5, 1.5), fdur)
-		var fade := f.create_tween()
-		fade.tween_property(f, "modulate:a", 0.8, fdur * 0.25)
-		fade.tween_property(f, "modulate:a", 0.0, fdur * 0.75)
 
 func _retry_run() -> void:
 	get_tree().paused = false
@@ -1819,6 +2322,17 @@ func _input(event: InputEvent) -> void:
 				get_viewport().set_input_as_handled()
 				_toggle_stats()   # Esc closes the character screen
 				return
+			if ArpgState.level_lab:
+				# Launched from dev Level Select → Esc exits back to it. Remember which
+				# level we were in so Level Select can offer "Resume" (back to the game)
+				# instead of only "Back to Title".
+				get_viewport().set_input_as_handled()
+				var cur := get_tree().current_scene
+				if cur != null and cur.scene_file_path != "":
+					ArpgState.last_lab_scene = cur.scene_file_path
+				ArpgState.level_lab = false
+				get_tree().change_scene_to_file("res://scenes/level_select.tscn")
+				return
 			if not has_node("PauseMenu"):
 				var pm := preload("res://scenes/pause_menu.tscn").instantiate()
 				pm.name = "PauseMenu"
@@ -1840,6 +2354,80 @@ func _input(event: InputEvent) -> void:
 			if _minimap:
 				_minimap.visible = _minimap_on
 			_on_toast("Minimap %s" % ("ON" if _minimap_on else "OFF"), Color(0.7, 0.85, 1.0))
+		elif event.keycode == KEY_F3:
+			get_viewport().set_input_as_handled()
+			_toggle_perf_overlay()
+
+# ── PERF OVERLAY (press F3) ──────────────────────────────────────────────────
+# Live frame-time + object/draw-call counters so we can SEE what's spiking during a
+# heavy fight instead of guessing. Cheap: text only, refreshed ~5x/sec.
+var _perf_label: Label = null
+var _perf_t: float = 0.0
+
+func _toggle_perf_overlay() -> void:
+	if _perf_label == null:
+		var cl := CanvasLayer.new()
+		cl.layer = 200
+		add_child(cl)
+		_perf_label = Label.new()
+		_perf_label.add_theme_font_size_override("font_size", 16)
+		_perf_label.add_theme_color_override("font_color", Color(0.6, 1.0, 0.5))
+		_perf_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.95))
+		_perf_label.add_theme_constant_override("outline_size", 4)
+		_perf_label.position = Vector2(14, 150)
+		cl.add_child(_perf_label)
+	_perf_label.visible = not _perf_label.visible
+	_on_toast("Perf overlay %s" % ("ON" if _perf_label.visible else "OFF"), Color(0.6, 1.0, 0.5))
+
+var _perf_hitches: Array = []
+var _perf_flush_t: float = 0.0
+
+func _log_hitch_if_any(delta: float) -> void:
+	# AUTO-CAPTURE: whenever a frame takes too long (a hitch), snapshot the live counts so I
+	# can read which metric correlates with the stutter — no manual overlay reading needed.
+	# Writes user://perf_hitches.json (latest 300 hitches), flushed every ~4s.
+	if not ArpgState.active:
+		return
+	if delta > 0.033 and delta < 0.30:        # 33-300ms = a gameplay hitch (skip level-load spikes)
+		_perf_hitches.append({
+			"ms": int(delta * 1000.0),
+			"nodes": int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+			"orphans": int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT)),
+			"draws": int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME)),
+			"phys_ms": snappedf(Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0, 0.1),
+			"enemies": get_tree().get_nodes_in_group("enemies").size(),
+			"theme": theme,
+			"depth": ArpgState.depth,
+			"t": int(Time.get_ticks_msec()),
+		})
+		if _perf_hitches.size() > 300:
+			_perf_hitches = _perf_hitches.slice(_perf_hitches.size() - 300)
+	_perf_flush_t -= delta
+	if _perf_flush_t <= 0.0 and not _perf_hitches.is_empty():
+		_perf_flush_t = 4.0
+		var f := FileAccess.open("user://perf_hitches.json", FileAccess.WRITE)
+		if f != null:
+			f.store_string(JSON.stringify(_perf_hitches))
+			f.close()
+
+func _update_perf_overlay(delta: float) -> void:
+	if _perf_label == null or not _perf_label.visible:
+		return
+	_perf_t -= delta
+	if _perf_t > 0.0:
+		return
+	_perf_t = 0.2
+	var fps: float = Engine.get_frames_per_second()
+	var proc_ms: float = Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+	var phys_ms: float = Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+	var nodes: int = int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT))
+	var orphans: int = int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	var draws: int = int(Performance.get_monitor(Performance.RENDER_TOTAL_DRAW_CALLS_IN_FRAME))
+	var enemies: int = get_tree().get_nodes_in_group("enemies").size()
+	var pizzas: int = get_tree().get_nodes_in_group("player_projectiles").size()
+	_perf_label.text = "FPS %d   frame: proc %.1fms / phys %.1fms\nnodes %d  orphans %d  draws %d\nenemies %d  pizzas %d" % [
+		fps, proc_ms, phys_ms, nodes, orphans, draws, enemies, pizzas]
+	_perf_label.modulate = Color(1, 0.4, 0.4) if fps < 50 else Color(1, 1, 1)
 
 # ── lighting modes (live-switchable) ────────────────────────────────────────
 func _build_gi_layer() -> void:
@@ -2040,12 +2628,1025 @@ func _apply_lighting_mode(m: int) -> void:
 		_mode_buttons[i].add_theme_stylebox_override("pressed", sb)
 		_mode_buttons[i].add_theme_color_override("font_color", Color(0.12, 0.09, 0.04) if active else Color(0.9, 0.88, 0.92))
 
-# ── backrooms theme (Level 0) ────────────────────────────────────────────────
+# ── themed levels: neon / damp / hand (5 design variants each) ───────────────
+func _is_custom_theme() -> bool:
+	return theme == "neon" or theme == "damp" or theme == "hand" or theme == "cyber2077" or theme == "space" or theme == "poolrooms" or theme == "wheat" or theme == "sewer" or theme == "suburb" or theme == "glitch" or theme == "toystore" or theme == "carnival" or theme == "frozen" or theme == "subway"
+
+# Flat, fully-lit themes (backrooms-style): bright global ambient, NO player aura,
+# no prop/projectile glows. The hand-drawn + cyberpunk levels use normal lighting.
+func _flat_lit() -> bool:
+	return theme == "backrooms" or theme == "hand" or theme == "cyber2077" or theme == "wheat" or theme == "poolrooms" or theme == "suburb" or theme == "glitch" or theme == "toystore" or theme == "carnival" or theme == "frozen"
+
+func _ctex(path: String) -> Texture2D:
+	if _tex_cache.has(path):
+		return _tex_cache[path]
+	var t: Texture2D = _load_tex_mip(path)
+	_tex_cache[path] = t
+	return t
+
+func _apply_variant() -> void:
+	# Dev Level Lab passes the chosen design through ArpgState; otherwise use the
+	# scene's exported `variant`. Clamp to the 5 designs.
+	_variant = variant
+	if ArpgState.pending_variant > 0:
+		_variant = ArpgState.pending_variant
+		ArpgState.pending_variant = 0
+	_variant = clampi(_variant, 1, 5)
+	var list: Array = _theme_variants().get(theme, [])
+	if list.is_empty():
+		return
+	_lvl_cfg = list[(_variant - 1) % list.size()]
+	var base: String = "res://assets/%s/" % theme
+	_lvl_floor = _ctex(base + "floors/" + String(_lvl_cfg["floor"]) + ".png")
+	var wall_name: String = wall_override if wall_override != "" else String(_lvl_cfg["wall"])
+	_lvl_wall = _ctex(base + "walls/" + wall_name + ".png")
+	if _lvl_cfg.has("wall_top"):
+		_lvl_wall_top = _ctex(base + "walls/" + String(_lvl_cfg["wall_top"]) + ".png")
+	_lvl_ambient = _lvl_cfg.get("amb", Color(0.15, 0.14, 0.21))
+
+func _glow(pos: Vector2, color: Color, energy: float, reach_tiles: float) -> void:
+	if _flat_lit():
+		return   # flat-lit themes: nothing casts an aura
+	var g := PointLight2D.new()
+	g.texture = LightTex
+	g.position = pos
+	g.color = color
+	g.energy = energy
+	g.texture_scale = (tile * reach_tiles) / float(LightTex.get_width())
+	g.shadow_enabled = false
+	add_child(g)
+
+# Build a prop pool [{tex,frac,col,en,reach}] from a list of [name,frac,col,en,reach].
+func _prop_pool(specs: Array) -> Array:
+	var base: String = "res://assets/%s/props/" % theme
+	var pool: Array = []
+	for s in specs:
+		var nm: String = String(s[0])
+		# "pack/cat/name" = pull from another pack; bare name = this theme's props dir.
+		var path: String = ("res://assets/" + nm + ".png") if nm.contains("/") else (base + nm + ".png")
+		var t: Texture2D = _ctex(path)
+		if t != null:
+			pool.append({"tex": t, "frac": float(s[1]),
+				"col": (s[2] if s.size() > 2 else null),
+				"en": (float(s[3]) if s.size() > 3 else 0.0),
+				"reach": (float(s[4]) if s.size() > 4 else 3.0)})
+	return pool
+
+func _spawn_custom_props() -> void:
+	# Tall pieces tuck against room walls (some cast coloured light); low clutter
+	# scatters across the floor near corners. Purely decorative — no collision.
+	var wall_pool: Array = _prop_pool(_lvl_cfg.get("wall_props", []))
+	var floor_pool: Array = _prop_pool(_lvl_cfg.get("floor_props", []))
+	if wall_pool.is_empty() and floor_pool.is_empty():
+		return
+	var wall_chance: float = float(_lvl_cfg.get("wall_chance", 0.7))
+	var floor_chance: float = float(_lvl_cfg.get("floor_chance", 0.5))
+	for room in _rooms:
+		if room == _start_room or room == _boss_room:
+			continue
+		if not wall_pool.is_empty() and randf() < wall_chance:
+			var p: Dictionary = wall_pool[randi() % wall_pool.size()]
+			var spot: Dictionary = _perimeter_spot(room)
+			var toward: Vector2 = spot["toward"]
+			# Light-casting pieces (torches / braziers / crystals) are wall fixtures —
+			# mount them flush against the wall and lifted onto its face, drawn in front.
+			var mounted: bool = p["col"] != null
+			var pos: Vector2
+			if mounted:
+				# Mount flush ON the wall: `toward` points AT the wall, so push the torch
+				# out to the floor/wall boundary and draw it in front. (Previously this
+				# used `-toward`, shoving torches INTO the room — the floating-in-the-middle bug.)
+				pos = spot["pos"] + toward * (tile * 0.5)
+				_place_prop(p["tex"], pos, 3, float(p["frac"]), 0)
+			else:
+				# z=0 → the prop y-sorts with the player/enemies (parent has y_sort on), so
+				# you walk IN FRONT of wall props when below them, not always behind.
+				pos = spot["pos"] + toward * (tile * 0.16)
+				_place_prop(p["tex"], pos, 0, float(p["frac"]), 0)
+			if p["col"] != null:
+				var head: Vector2 = pos - Vector2(0, tile * float(p["frac"]) * 0.32)
+				_glow(head, p["col"], float(p["en"]), float(p["reach"]))
+		if not floor_pool.is_empty() and randf() < floor_chance:
+			var spot3: Dictionary = _corner_spot(room)
+			var fbase: Vector2 = spot3["pos"] + Vector2(spot3["toward"]) * (tile * 0.12)
+			for i in randi_range(1, 3):
+				var fp: Dictionary = floor_pool[randi() % floor_pool.size()]
+				var off := Vector2(randf_range(-tile * 0.5, tile * 0.5), randf_range(-tile * 0.4, tile * 0.4))
+				_place_prop(fp["tex"], fbase + off, 0, float(fp["frac"]))
+				if fp["col"] != null:
+					_glow(fbase + off - Vector2(0, tile * 0.2), fp["col"], float(fp["en"]), float(fp["reach"]))
+
+# Hand level only: mount sconce torches on the LEFT/RIGHT exposed faces of wall runs.
+# In a left-to-right row of wall blocks the leftmost block borders floor on its LEFT
+# (→ torch on its left face) and the rightmost borders floor on its RIGHT (→ torch on
+# its right face); interior blocks are walled on both sides and stay bare. Vertical
+# faces are thinned to one torch every few cells so tall walls don't get a ladder of them.
+func _spawn_hand_wall_torches() -> void:
+	var tex: Texture2D = _ctex("res://assets/hand/props/isowalltorch.png")
+	if tex == null:
+		return
+	var gap: int = 6                       # min vertical cell spacing along a face (halved torch density)
+	var last_left: Dictionary = {}         # column x -> last y a left-face torch was placed
+	var last_right: Dictionary = {}        # column x -> last y a right-face torch was placed
+	for y in range(_fh):
+		for x in range(_fw):
+			if not _wall[y][x]:
+				continue
+			# Left face exposed: floor immediately to the left → flame points into the room.
+			if x - 1 >= 0 and not _wall[y][x - 1] and y - int(last_left.get(x, -99)) >= gap:
+				last_left[x] = y
+				_place_prop(tex, Vector2(x * tile - tile * 0.06, (y + 0.5) * tile), 4, 0.9, 1)
+			# Right face exposed: floor immediately to the right.
+			if x + 1 < _fw and not _wall[y][x + 1] and y - int(last_right.get(x, -99)) >= gap:
+				last_right[x] = y
+				_place_prop(tex, Vector2((x + 1) * tile + tile * 0.06, (y + 0.5) * tile), 4, 0.9, 0)
+
+# Hand level only: stand columns against walls so the base rises out of the floor and
+# the top tucks up behind the wall face/top — reads like a pillar built INTO the wall
+# rather than a free-standing sprite floating in the room.
+func _spawn_hand_pillars() -> void:
+	var texes: Array = []
+	for nm in ["IsoPillar", "IsoPillar2", "isosquare-pillar1"]:
+		var t: Texture2D = _ctex("res://assets/hand/props/%s.png" % nm)
+		if t != null:
+			texes.append(t)
+	if texes.is_empty():
+		return
+	# Candidates: solid cells with floor directly BELOW (south-facing wall). A column
+	# placed here pokes its base into that floor cell; its top is hidden by the wall's
+	# front face (z=1) and lit top (z=2), since props draw at z=0 behind both.
+	var cands: Array = []
+	for y in range(_fh - 1):
+		for x in range(_fw):
+			if _wall[y][x] and not _wall[y + 1][x]:
+				cands.append(Vector2i(x, y))
+	cands.shuffle()
+	var placed: Array = []
+	var want: int = clampi(_rooms.size() / 2, 2, 9)
+	for c in cands:
+		if placed.size() >= want:
+			break
+		var pc := Vector2((c.x + 0.5) * tile, (c.y + 1) * tile)
+		if _pos_too_close(pc, placed, tile * 5.0):
+			continue
+		placed.append(pc)
+		# nudged down so the lit base sits out in the room; tall frac so it spans the wall.
+		_place_prop(texes[randi() % texes.size()], pc + Vector2(0, tile * 0.34), 0, 1.9, 0)
+
+# Hand level only: crates and barrels are piled in mixed clusters tucked into a few
+# room corners (a little stack here and there) instead of scattered as lone props.
+func _spawn_hand_clusters() -> void:
+	var pool: Array = []
+	var crate: Texture2D = _ctex("res://assets/hand/props/isocrate.png")
+	var barrel: Texture2D = _ctex("res://assets/hand/props/IsoBarrel.png")
+	if crate != null:
+		pool.append({"tex": crate, "frac": 0.82})
+	if barrel != null:
+		pool.append({"tex": barrel, "frac": 0.96})
+	if pool.is_empty():
+		return
+	for room in _rooms:
+		if room == _start_room or room == _boss_room:
+			continue
+		if randf() >= 0.55:
+			continue
+		var spot: Dictionary = _corner_spot(room)
+		var base: Vector2 = Vector2(spot["pos"]) + Vector2(spot["toward"]) * (tile * 0.18)
+		var slots: Array = []
+		for i in range(randi_range(2, 4)):
+			slots.append(Vector2(randf_range(-tile * 0.45, tile * 0.45), randf_range(-tile * 0.30, tile * 0.36)))
+		slots.sort_custom(func(a, b): return a.y < b.y)   # back-to-front so nearer crates overlap
+		for off in slots:
+			var it: Dictionary = pool[randi() % pool.size()]
+			_place_prop(it["tex"], base + off, 0, float(it["frac"]))
+
+# The 5 design variants for each themed level. Colours are PointLight2D tints.
+func _theme_variants() -> Dictionary:
+	var CY := Color(0.35, 0.85, 1.0)
+	var MA := Color(1.0, 0.25, 0.65)
+	var RE := Color(1.0, 0.30, 0.28)
+	var WA := Color(1.0, 0.72, 0.42)
+	var GR := Color(0.45, 1.0, 0.55)
+	var PU := Color(0.7, 0.4, 1.0)
+	# neon shares one floor/wall set; variants are mood + light-palette swaps.
+	var neon_signs := func(c1: Color, c2: Color) -> Array:
+		return [["sign_neon", 1.05, c1, 1.15, 3.4], ["vending_a", 1.45, c2, 0.55, 2.2],
+			["vending_b", 1.45, c2, 0.55, 2.2], ["vending_c", 1.45, c1, 0.6, 2.2],
+			["lamp_a", 2.1, c2, 0.9, 3.6], ["lamp_b", 2.1, c2, 0.9, 3.6],
+			["lamp_c", 1.9, WA, 0.9, 3.4], ["light_red_a", 1.9, c1, 0.95, 3.0],
+			["light_red_b", 1.9, c1, 0.95, 3.0]]
+	var neon_floor := [["crates", 1.15], ["bin_a", 0.85], ["bin_b", 0.85], ["canister", 0.85]]
+	var nbase := {"floor": "floor", "wall": "wall", "wall_top": "wall_top",
+		"face_shade": 0.78, "wall_props": [], "floor_props": neon_floor, "wall_chance": 0.72}
+	return {
+		"neon": [
+			_merge(nbase, {"amb": Color(0.16, 0.17, 0.27), "wall_props": neon_signs.call(MA, CY)}),
+			_merge(nbase, {"amb": Color(0.24, 0.11, 0.15), "wall_props": neon_signs.call(RE, WA)}),
+			_merge(nbase, {"amb": Color(0.18, 0.12, 0.28), "wall_props": neon_signs.call(MA, PU)}),
+			_merge(nbase, {"amb": Color(0.12, 0.20, 0.17), "wall_props": neon_signs.call(GR, CY)}),
+			_merge(nbase, {"amb": Color(0.22, 0.18, 0.11), "wall_props": neon_signs.call(WA, RE)}),
+		],
+		"damp": _damp_variants(WA, CY),
+		"hand": _hand_variants(WA),
+		"cyber2077": _cyber_variants(CY, MA, RE, WA, GR, PU),
+		"space": _space_variants(CY),
+		"poolrooms": _poolrooms_variants(),
+		"wheat": _wheat_variants(),
+		"sewer": _sewer_variants(),
+		"suburb": _suburb_variants(),
+		"glitch": _glitch_variants(),
+		"toystore": _toystore_variants(),
+		"carnival": _carnival_variants(),
+		"frozen": _frozen_variants(),
+		"subway": _subway_variants(),
+	}
+
+func _glitch_variants() -> Array:
+	# Corrupted level: static-noise floor + the original dungeon brick walls, which strobe
+	# through random glitch colours (see _glitch_flash). Props are bare.
+	var base := {"floor": "static", "wall": "brick", "wall_top": "brick",
+		"face_shade": 0.85, "wall_chance": 0.0, "wall_props": [], "floor_props": []}
+	var v: Array = []
+	for i in range(5):
+		v.append(_merge(base, {"amb": Color(0.55, 0.55, 0.6)}))
+	return v
+
+# Glitch level: every wall brick strobes to a new random bright colour 4x/sec.
+func _start_glitch_flash() -> void:
+	var t := Timer.new()
+	t.wait_time = 0.22
+	t.autostart = true
+	t.timeout.connect(_glitch_flash)
+	add_child(t)
+
+# Flat-colour shader: render the textured sprite as a SOLID silhouette of `flat_col`,
+# keeping only the texture's alpha. Used to make the player a flashing solid shape.
+const _GLITCH_PLAYER_SHADER := "shader_type canvas_item;\nuniform vec4 flat_col : source_color = vec4(1.0);\nvoid fragment() {\n\tvec4 t = texture(TEXTURE, UV);\n\tCOLOR = vec4(flat_col.rgb, t.a);\n}"
+
+func _apply_glitch_player() -> void:
+	# In the glitch level the player becomes a solid-colour silhouette that flashes with
+	# the walls (same vibe as falling INTO the glitch).
+	if _player == null:
+		return
+	var rig := _player.get_node_or_null("Rig")
+	if rig == null:
+		return
+	var sh := Shader.new()
+	sh.code = _GLITCH_PLAYER_SHADER
+	for n in rig.get_children():
+		if n is Sprite2D:
+			var m := ShaderMaterial.new()
+			m.shader = sh
+			m.set_shader_parameter("flat_col", Color.from_hsv(randf(), 0.9, 1.0))  # seed so it isn't white for the first 0.22s
+			(n as Sprite2D).material = m
+			(n as Sprite2D).add_to_group("glitch_player")
+
+func _glitch_flash() -> void:
+	# Walls are flat white tiles, so the modulate IS the colour they show — pure flashing
+	# cubes. Roll vivid, fully-saturated hues so they flash THROUGH the colour wheel.
+	for w in get_tree().get_nodes_in_group("glitch_wall"):
+		if is_instance_valid(w):
+			(w as CanvasItem).modulate = Color.from_hsv(randf(), randf_range(0.85, 1.0), randf_range(0.85, 1.0), 1.0)
+	# The player flashes as a solid silhouette too.
+	var pcol := Color.from_hsv(randf(), randf_range(0.85, 1.0), 1.0)
+	for s in get_tree().get_nodes_in_group("glitch_player"):
+		if is_instance_valid(s):
+			var mm := (s as CanvasItem).material as ShaderMaterial
+			if mm != null:
+				mm.set_shader_parameter("flat_col", pcol)
+
+func _toystore_variants() -> Array:
+	# Toy Store: bright checkerboard floor, store-wall maze, shelving + toy-box clutter.
+	var base := {"floor": "floor", "wall": "wall", "wall_top": "wall_top",
+		"face_shade": 0.9, "wall_chance": 0.5,
+		"wall_props": [["backrooms/props/furniture/shelf", 1.4]],
+		"floor_props": [["fx/biome/toybox_blue", 0.9], ["fx/biome/toybox_green", 0.9],
+			["fx/biome/toybox_orange", 0.9], ["fx/biome/toybox_purple", 0.9],
+			["fx/biome/counter", 1.3]]}
+	var v: Array = []
+	for i in range(5):
+		v.append(_merge(base, {"amb": Color(0.96, 0.95, 0.92)}))
+	return v
+
+func _carnival_variants() -> Array:
+	# Carnival: grassy midway, hedge-maze walls, carousel + striped tents + prize booths.
+	var base := {"floor": "floor", "wall": "wall", "wall_top": "wall_top",
+		"face_shade": 0.92, "wall_chance": 0.45, "wall_props": [],
+		"floor_props": [["fx/biome/carousel", 3.0], ["fx/biome/tent_red", 2.2],
+			["fx/biome/tent_blue", 2.2], ["fx/biome/tent_green", 2.2], ["fx/biome/booth", 1.5]]}
+	var v: Array = []
+	for i in range(5):
+		v.append(_merge(base, {"amb": Color(0.95, 0.96, 0.98)}))
+	return v
+
+func _frozen_variants() -> Array:
+	# Frozen Cavern: pale ice floor, rocky-ice walls, ice boulders + frozen pools.
+	var base := {"floor": "floor", "wall": "wall", "wall_top": "wall_top",
+		"face_shade": 0.8, "wall_chance": 0.6, "wall_props": [],
+		"floor_props": [["fx/biome/ice_rock", 1.2], ["fx/biome/ice_pool", 1.6]]}
+	var v: Array = []
+	for i in range(5):
+		v.append(_merge(base, {"amb": Color(0.72, 0.82, 0.95)}))
+	return v
+
+func _subway_variants() -> Array:
+	# Subway Platform: concrete platform floor, white tiled walls, track sections.
+	var base := {"floor": "floor", "wall": "wall", "wall_top": "wall_top",
+		"face_shade": 0.7, "wall_chance": 0.6, "wall_props": [],
+		"floor_props": [["fx/biome/track", 1.5]]}
+	var v: Array = []
+	for i in range(5):
+		v.append(_merge(base, {"amb": Color(0.45, 0.47, 0.55)}))
+	return v
+
+func _suburb_variants() -> Array:
+	# Suburban neighbourhood: a connected CUL-DE-SAC road network (see _generate_suburb).
+	# Roads are the floor; houses (siding walls + shingle roofs) are the wall mass.
+	# Courts dressed with trees + parked cars, mailboxes & hedges against the houses.
+	# wall FACE uses the grey concrete "roof" tile (was the blue "house" siding strip that
+	# clashed under the iso house sprites); the houses themselves now carry the suburb look.
+	var base := {"floor": "road", "wall": "roof", "wall_top": "roof",
+		"face_shade": 0.8, "wall_chance": 0.6, "floor_chance": 0.6,
+		"wall_props": [],
+		"floor_props": [["tree", 1.4]]}   # mailboxes go beside the houses; cars park on the road
+	return [
+		_merge(base, {"amb": Color(0.94, 0.95, 0.98)}),
+		_merge(base, {"amb": Color(0.96, 0.95, 0.9), "floor_props": [["tree", 1.5]]}),
+		_merge(base, {"amb": Color(0.92, 0.94, 0.98), "floor_props": [["tree", 1.5]]}),
+		_merge(base, {"amb": Color(0.95, 0.95, 0.96), "floor_props": [["tree", 1.3]]}),
+		_merge(base, {"amb": Color(0.93, 0.95, 0.97), "floor_props": [["tree", 1.4]]}),
+	]
+
+func _build_walls_suburb() -> void:
+	# Suburb is open-air: the non-road mass is flat GRASS yards (not raised grey blocks),
+	# still solid so you stay on the streets. Houses / lawns / fences layer on top later.
+	var grass: Texture2D = _ctex("res://assets/kenney_roguelike/grass.png")
+	var gs: float = float(maxi(1, grass.get_width())) if grass != null else 1.0
+	for y in _fh:
+		for x in _fw:
+			if not _wall[y][x]:
+				continue
+			if grass != null:
+				var g := Sprite2D.new()
+				g.texture = grass
+				g.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+				g.position = Vector2((x + 0.5) * tile, (y + 0.5) * tile)
+				g.scale = Vector2(tile / gs, tile / gs)
+				g.z_index = -12
+				add_child(g)
+			if not _touches_floor(x, y):
+				continue                      # interior yard cells are unreachable → no collider
+			var body := StaticBody2D.new()
+			body.add_to_group("walls")
+			body.position = Vector2((x + 0.5) * tile, (y + 0.5) * tile)
+			body.collision_layer = 1
+			body.collision_mask = 0
+			var cs := CollisionShape2D.new()
+			var rect := RectangleShape2D.new()
+			rect.size = Vector2(tile, tile)
+			cs.shape = rect
+			body.add_child(cs)
+			add_child(body)
+
+func _add_strip(center: Vector2, size: Vector2, col: Color, z: int) -> void:
+	var r := Polygon2D.new()
+	var hw: float = size.x * 0.5
+	var hh: float = size.y * 0.5
+	r.polygon = PackedVector2Array([Vector2(-hw, -hh), Vector2(hw, -hh), Vector2(hw, hh), Vector2(-hw, hh)])
+	r.color = col
+	r.position = center
+	r.z_index = z
+	add_child(r)
+
+func _stripe_suburb_roads() -> void:
+	# Paint a light curb where the asphalt meets a yard, and a solid DOUBLE-YELLOW line down
+	# the centre of every 3-wide street (American road markings) — read off the road shape.
+	var YELLOW := Color(0.86, 0.72, 0.18)
+	var CURB := Color(0.6, 0.6, 0.64)
+	for y in range(1, _fh - 1):
+		for x in range(1, _fw - 1):
+			if _wall[y][x]:
+				continue
+			var cxw: float = (x + 0.5) * tile
+			var cyw: float = (y + 0.5) * tile
+			# curb strips at the road/yard boundary
+			if _wall[y - 1][x]:
+				_add_strip(Vector2(cxw, y * tile + tile * 0.05), Vector2(tile, tile * 0.1), CURB, -16)
+			if _wall[y + 1][x]:
+				_add_strip(Vector2(cxw, (y + 1) * tile - tile * 0.05), Vector2(tile, tile * 0.1), CURB, -16)
+			if _wall[y][x - 1]:
+				_add_strip(Vector2(x * tile + tile * 0.05, cyw), Vector2(tile * 0.1, tile), CURB, -16)
+			if _wall[y][x + 1]:
+				_add_strip(Vector2((x + 1) * tile - tile * 0.05, cyw), Vector2(tile * 0.1, tile), CURB, -16)
+			# centre line: a road cell flanked by road then yard two cells out
+			var horiz: bool = false
+			var vert: bool = false
+			if y >= 2 and y + 2 < _fh:
+				horiz = (not _wall[y - 1][x]) and (not _wall[y + 1][x]) and _wall[y - 2][x] and _wall[y + 2][x]
+			if x >= 2 and x + 2 < _fw:
+				vert = (not _wall[y][x - 1]) and (not _wall[y][x + 1]) and _wall[y][x - 2] and _wall[y][x + 2]
+			if horiz and not vert:
+				_add_strip(Vector2(cxw, cyw - tile * 0.06), Vector2(tile, tile * 0.045), YELLOW, -15)
+				_add_strip(Vector2(cxw, cyw + tile * 0.06), Vector2(tile, tile * 0.045), YELLOW, -15)
+			elif vert and not horiz:
+				_add_strip(Vector2(cxw - tile * 0.06, cyw), Vector2(tile * 0.045, tile), YELLOW, -15)
+				_add_strip(Vector2(cxw + tile * 0.06, cyw), Vector2(tile * 0.045, tile), YELLOW, -15)
+
+func _scatter_suburb_houses() -> void:
+	# Houses sit BACK on their grass lawns, all facing the street the same way (down) so the
+	# rows read cleanly — a concrete driveway runs out to the kerb and picket fences divide
+	# the lots. Placed on yard cells that front a road (south preferred → faces straight in).
+	var texes: Array = []
+	for c in ["blue", "pink", "green"]:
+		for s in ["00", "01", "02", "03"]:
+			var t: Texture2D = _ctex("res://assets/suburb/houses/house_%s_%s.png" % [c, s])
+			if t != null:
+				texes.append(t)
+	if texes.is_empty():
+		return
+	var fronts: Array = []
+	for y in range(1, _fh - 1):
+		for x in range(1, _fw - 1):
+			if not _wall[y][x]:
+				continue
+			var rs: bool = not _wall[y + 1][x]
+			var re: bool = not _wall[y][x + 1]
+			var rw: bool = not _wall[y][x - 1]
+			if not (rs or re or rw):
+				continue
+			fronts.append({"x": x, "y": y, "rs": rs})
+	fronts.shuffle()
+	var placed: Array = []
+	var infos: Array = []
+	var min_gap: float = tile * 1.9
+	var house_h: float = tile * 1.45
+	for cd in fronts:
+		var cx: int = cd["x"]; var cy: int = cd["y"]
+		# Sit the house back on its lawn; body is drawn UPWARD from the base so it never spills
+		# onto the street → safe at a high z without occluding the player below.
+		var base_w := Vector2((cx + 0.5) * tile, (cy + 0.62) * tile)
+		var ok := true
+		for pp in placed:
+			if (pp as Vector2).distance_to(base_w) < min_gap:
+				ok = false
+				break
+		if not ok:
+			continue
+		placed.append(base_w)
+		var tex: Texture2D = texes[randi() % texes.size()]
+		var sc: float = house_h / float(maxi(1, tex.get_height()))
+		var spr := Sprite2D.new()
+		spr.texture = tex
+		spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		spr.scale = Vector2(sc, sc)
+		spr.offset = Vector2(0, -float(tex.get_height()) * 0.5)
+		spr.position = base_w
+		spr.z_index = 3
+		spr.add_to_group("suburb_house")
+		add_child(spr)
+		infos.append({"pos": base_w, "hw": tex.get_width() * sc * 0.5, "rs": cd["rs"]})
+	# Asphalt DRIVEWAY (same dark tone as the road tile) from each street-facing house out to
+	# the kerb — a wide flat strip, not a pole.
+	for inf in infos:
+		if not inf["rs"]:
+			continue
+		var hp2: Vector2 = inf["pos"]
+		var side2: float = -1.0 if randf() < 0.5 else 1.0
+		var dwx: float = hp2.x + side2 * float(inf["hw"]) * 0.45
+		_add_strip(Vector2(dwx, hp2.y + tile * 0.34), Vector2(tile * 0.5, tile * 0.66), Color(0.2, 0.2, 0.22), -10)
+	# A mailbox sat BESIDE the house (out on the lawn toward the kerb) — never in the road.
+	var mailbox: Texture2D = _ctex("res://assets/suburb/props/mailbox.png")
+	if mailbox != null:
+		for inf in infos:
+			if randf() > 0.55:
+				continue                      # only ~half the houses get one
+			var hp: Vector2 = inf["pos"]
+			var side: float = -1.0 if randf() < 0.5 else 1.0
+			var mb := Sprite2D.new()
+			mb.texture = mailbox
+			mb.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			var msz: float = (tile * 0.55) / float(maxi(1, mailbox.get_height()))
+			mb.scale = Vector2(msz, msz)
+			mb.offset = Vector2(0, -float(mailbox.get_height()) * 0.5)   # post anchored at its base
+			mb.position = hp + Vector2(side * (float(inf["hw"]) + tile * 0.16), tile * 0.26)
+			mb.z_index = 3
+			mb.add_to_group("suburb_mailbox")
+			add_child(mb)
+
+func _spawn_lawn_bears() -> void:
+	# A few friendly neighbourhood KKs ambling around the FRONT lawns — pure flavour, harmless.
+	# Pick yard cells with a road within ~2 tiles so the player actually walks past them.
+	var lawn_cells: Array = []
+	for y in range(1, _fh - 1):
+		for x in range(1, _fw - 1):
+			if not _wall[y][x]:
+				continue
+			var near_road := false
+			for dy in range(-2, 3):
+				for dx in range(-2, 3):
+					var ny: int = y + dy
+					var nx: int = x + dx
+					if ny >= 0 and ny < _fh and nx >= 0 and nx < _fw and not _wall[ny][nx]:
+						near_road = true
+						break
+				if near_road:
+					break
+			if near_road:
+				lawn_cells.append(Vector2i(x, y))
+	lawn_cells.shuffle()
+	var n: int = mini(9, lawn_cells.size())
+	for i in range(n):
+		var c: Vector2i = lawn_cells[i]
+		var b := LawnBearScript.new()
+		b.position = Vector2((c.x + 0.5) * tile, (c.y + 0.5) * tile)
+		add_child(b)
+
+func _spawn_suburb_cars() -> void:
+	# Park cars along the streets, ALIGNED to traffic. The sprite points up/down, so an
+	# east-west street rotates it 90°; tuck each against the kerb (the yard side), spaced out.
+	var car: Texture2D = _ctex("res://assets/suburb/props/car.png")
+	if car == null:
+		return
+	var spots: Array = []
+	for y in range(1, _fh - 1):
+		for x in range(1, _fw - 1):
+			if _wall[y][x]:
+				continue
+			var fl_w: bool = not _wall[y][x - 1]
+			var fl_e: bool = not _wall[y][x + 1]
+			var fl_n: bool = not _wall[y - 1][x]
+			var fl_s: bool = not _wall[y + 1][x]
+			if fl_w and fl_e and (not fl_n or not fl_s):       # E-W street with a kerb above/below
+				var oy: float = -0.26 if _wall[y - 1][x] else 0.26
+				spots.append({"pos": Vector2((x + 0.5) * tile, (y + 0.5 + oy) * tile), "rot": PI * 0.5})
+			elif fl_n and fl_s and (not fl_w or not fl_e):     # N-S street with a kerb left/right
+				var ox: float = -0.26 if _wall[y][x - 1] else 0.26
+				spots.append({"pos": Vector2((x + 0.5 + ox) * tile, (y + 0.5) * tile), "rot": 0.0})
+	spots.shuffle()
+	var placed: Array = []
+	var want: int = 10
+	for sp in spots:
+		if placed.size() >= want:
+			break
+		var pos: Vector2 = sp["pos"]
+		var ok := true
+		for pp in placed:
+			if (pp as Vector2).distance_to(pos) < tile * 3.5:
+				ok = false
+				break
+		if not ok:
+			continue
+		placed.append(pos)
+		var s := Sprite2D.new()
+		s.texture = car
+		s.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+		s.scale = Vector2.ONE * (tile * 1.55 / 80.0)   # ~1.5 tiles long
+		s.rotation = sp["rot"]
+		s.position = pos
+		s.z_index = 1
+		s.add_to_group("suburb_car")
+		add_child(s)
+
+func _spawn_friendly_bears(n: int) -> void:
+	# A few harmless wandering Finn KKs on the floor (the drawn level's resident neighbours).
+	for i in range(n):
+		var b := LawnBearScript.new()
+		b.position = _random_floor_world(tile * 6.0, true)
+		add_child(b)
+
+func _add_driveway_strip(center: Vector2, w: float, h: float) -> void:
+	# Light-grey concrete drive from the house lawn out to the kerb.
+	var dw := Polygon2D.new()
+	var hw: float = w * 0.5
+	var hh: float = h * 0.5
+	dw.polygon = PackedVector2Array([Vector2(-hw, -hh), Vector2(hw, -hh), Vector2(hw, hh), Vector2(-hw, hh)])
+	dw.color = Color(0.52, 0.52, 0.55)
+	dw.position = center
+	dw.z_index = -8
+	add_child(dw)
+
+func _sewer_variants() -> Array:
+	# Flooded sewers — wet mossy brick (AI-generated tiles), dark and dank. Dressed with
+	# barrels/rubble/bones borrowed from the damp dungeon pack. Different murk tints per design.
+	var base := {"floor": "walk", "wall": "brick", "wall_top": "brick_top",
+		"face_shade": 0.68, "wall_chance": 0.55,
+		"wall_props": [["damp/props/barrel", 1.1], ["damp/props/bookstack", 1.0], ["damp/props/crate", 1.0]],
+		"floor_props": [["damp/props/rock", 0.9], ["damp/props/bone", 0.7], ["damp/props/skulls", 0.8], ["damp/props/skull", 0.6]]}
+	return [
+		_merge(base, {"amb": Color(0.13, 0.18, 0.16)}),   # 1 Green Murk
+		_merge(base, {"amb": Color(0.16, 0.15, 0.12)}),   # 2 Brown Sludge
+		_merge(base, {"amb": Color(0.11, 0.15, 0.21)}),   # 3 Flooded Blue
+		_merge(base, {"amb": Color(0.12, 0.17, 0.15)}),   # 4 Damp Stone
+		_merge(base, {"amb": Color(0.10, 0.13, 0.17)}),   # 5 Deep Drain
+	]
+
+# Sewers only: one CONNECTED water network — every connecting corridor becomes a water
+# channel, and each room gets a full-span canal through its centre that meets those
+# channels at the edges, so all the water links into a maze. Rooms keep dry ground to
+# fight on either side of their canal. Drain grates dot the water.
+func _spawn_sewer_canals() -> void:
+	var water: Texture2D = _ctex("res://assets/fx/pool/water_clean.png")
+	if water == null:
+		water = _ctex("res://assets/fx/pool/water.png")
+	if water == null:
+		return
+	var grate: Texture2D = _ctex("res://assets/sewer/props/grate.png")
+	var wts: float = float(water.get_width())
+	var tint := Color(0.5, 0.66, 0.5)   # murky green sewer water
+	var is_water: Array = []   # dedupe so corridor + room canals don't double-stack
+	for y in range(_fh):
+		is_water.append([])
+		for x in range(_fw):
+			is_water[y].append(false)
+	# 1) every corridor cell (floor outside the rooms) → water channel
+	for y in range(_fh):
+		for x in range(_fw):
+			if not _wall[y][x] and not _in_any_room(x, y):
+				is_water[y][x] = true
+	# 2) a full-span centre canal across each room (reaches the edges → meets corridors)
+	for room in _rooms:
+		var horiz: bool = room.size.x >= room.size.y
+		var w_cells: int = 2 if mini(room.size.x, room.size.y) >= 7 else 1
+		if horiz:
+			var cyc: int = room.position.y + int(room.size.y / 2)
+			for ty in range(cyc - (w_cells - 1), cyc + 1):
+				for tx in range(room.position.x, room.position.x + room.size.x):
+					if ty >= 0 and ty < _fh and not _wall[ty][tx]:
+						is_water[ty][tx] = true
+		else:
+			var cxc: int = room.position.x + int(room.size.x / 2)
+			for tx in range(cxc - (w_cells - 1), cxc + 1):
+				for ty in range(room.position.y, room.position.y + room.size.y):
+					if tx >= 0 and tx < _fw and not _wall[ty][tx]:
+						is_water[ty][tx] = true
+	var grate_pos: Array = []
+	for y in range(_fh):
+		for x in range(_fw):
+			if not is_water[y][x]:
+				continue
+			var w := Sprite2D.new()
+			w.texture = water
+			w.position = Vector2((float(x) + 0.5) * tile, (float(y) + 0.5) * tile)
+			w.scale = Vector2(tile / wts, tile / wts)
+			w.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+			w.modulate = tint
+			w.z_index = -2
+			add_child(w)
+			if grate != null and randf() < 0.04 and not _pos_too_close(w.position, grate_pos, tile * 5.0):
+				grate_pos.append(w.position)
+				_place_prop(grate, w.position, 0, 1.2)
+
+func _in_any_room(x: int, y: int) -> bool:
+	for r in _rooms:
+		if x >= r.position.x and x < r.position.x + r.size.x and y >= r.position.y and y < r.position.y + r.size.y:
+			return true
+	return false
+
+func _wheat_variants() -> Array:
+	# Outdoor wheat field. "Walls" are standing-wheat hedgerows, so the BSP layout
+	# reads as a maze of cut paths through the crop. Flat sunny daylight (set in
+	# _ready). Decor (haystack field cover, haybale pyramids, grass clearings) is placed
+	# by _spawn_wheat_decor() — the busted barn/tractor/fence sprites are NOT used.
+	var base := {"floor": "ground", "wall": "stalks", "wall_top": "stalks_top",
+		"face_shade": 0.9, "wall_chance": 0.5, "wall_props": [], "floor_props": []}
+	var v: Array = []
+	for i in range(5):
+		v.append(_merge(base, {"amb": Color(0.98, 0.95, 0.80)}))
+	return v
+
+# Field of Wheat only: scatter haystacks as field cover (you partly vanish into them),
+# stack haybales in real pyramid piles, and drop the odd grass clearing in a corner.
+func _spawn_wheat_decor() -> void:
+	var haystack: Texture2D = _ctex("res://assets/wheat/props/haystack.png")
+	var haybale: Texture2D = _ctex("res://assets/wheat/props/haybale.png")
+	for room in _rooms:
+		if room == _start_room or room == _boss_room:
+			continue
+		var rx: int = room.position.x
+		var ry: int = room.position.y
+		var rsx: int = room.size.x
+		var rsy: int = room.size.y
+		# HAYSTACK field cover — open rooms get a scatter of tall hay you walk into;
+		# bigger rooms get denser patches ("you disappear into the wheat field").
+		if haystack != null and rsx >= 4 and rsy >= 4 and randf() < 0.75:
+			# Clump them — a few tight stands of tall hay rather than an even sprinkle.
+			var clumps: int = clampi(int(float(rsx * rsy) / 24.0), 1, 4)
+			for c in range(clumps):
+				var ccx: float = (float(rx) + randf_range(1.0, float(rsx) - 1.0)) * tile
+				var ccy: float = (float(ry) + randf_range(1.0, float(rsy) - 1.0)) * tile
+				for i in range(randi_range(3, 6)):
+					var off := Vector2(randf_range(-tile * 0.9, tile * 0.9), randf_range(-tile * 0.9, tile * 0.9))
+					_place_prop(haystack, Vector2(ccx, ccy) + off, 0, randf_range(1.1, 1.7))
+		# HAYBALE pyramid pile — placed INSIDE the room with clearance above (the stack
+		# rises ~1.3 tiles, so keep it ≥3 cells off the top wall or the top bale clips in).
+		if haybale != null and rsy >= 5 and randf() < 0.45:
+			var pbx: int = randi_range(rx + 1, rx + rsx - 2)
+			var pby: int = randi_range(ry + 3, ry + rsy - 1)
+			_place_haybale_pyramid(haybale, Vector2((float(pbx) + 0.5) * tile, (float(pby) + 0.5) * tile))
+		# (grass clearings removed — the grass asset read badly in the field)
+
+func _place_haybale_pyramid(tex: Texture2D, base: Vector2) -> void:
+	# 3-2-1 stack: each higher row is shorter and sits up/back, like piled bales.
+	var bw: float = tile * 0.66
+	var rows: Array = [3, 2, 1]
+	for r in range(rows.size()):
+		var n: int = rows[r]
+		var ry: float = base.y - float(r) * tile * 0.42
+		var startx: float = base.x - float(n - 1) * bw * 0.5
+		for i in range(n):
+			_place_prop(tex, Vector2(startx + float(i) * bw, ry), 0, 0.95, -1)
+
+# Pool Rooms only: drop a real swimming pool (the pre-made pool_big sprite, which has
+# its own tiled coping border) into the bigger rooms, with a curvy slide feeding in and
+# a colourful inner tube floating on the water.
+func _spawn_pools() -> void:
+	var night: bool = _variant > 3
+	var pool_tex: Texture2D = _ctex("res://assets/fx/pool/pool_big.png")
+	if pool_tex == null:
+		return
+	var slide: Texture2D = _ctex("res://assets/fx/pool/slide_curvy.png")
+	var chair: Texture2D = _ctex("res://assets/backrooms/props/furniture/chair_padded.png")
+	var tubes: Array = []
+	for nm in ["tube_blue", "tube_lime", "tube_red"]:
+		var t: Texture2D = _ctex("res://assets/fx/pool/%s.png" % nm)
+		if t != null:
+			tubes.append(t)
+	var ptw: float = float(pool_tex.get_width())
+	var pth: float = float(pool_tex.get_height())
+	var night_tint := Color(0.55, 0.64, 0.82)   # cool, dimmed for the night pool
+	for room in _rooms:
+		if room == _start_room or room == _boss_room:
+			continue
+		if room.size.x < 6 or room.size.y < 6 or randf() > 0.7:
+			continue
+		# Pool footprint, inset 2 cells so there's a deck to fight on around it.
+		var px0: int = room.position.x + 2
+		var py0: int = room.position.y + 2
+		var px1: int = room.position.x + room.size.x - 3
+		var py1: int = room.position.y + room.size.y - 3
+		if px1 - px0 < 2 or py1 - py0 < 2:
+			continue
+		var rw: float = float(px1 - px0 + 1) * tile
+		var rh: float = float(py1 - py0 + 1) * tile
+		var cx: float = (float(px0 + px1 + 1) * 0.5) * tile
+		var cy: float = (float(py0 + py1 + 1) * 0.5) * tile
+		# the pool sprite, scaled to FILL the footprint (it's a proper top-down pool).
+		var pool := Sprite2D.new()
+		pool.texture = pool_tex
+		pool.position = Vector2(cx, cy)
+		pool.scale = Vector2(rw / ptw, rh / pth)
+		pool.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # no sub-pixel shimmer on camera move
+		pool.z_index = -2
+		if night:
+			pool.modulate = night_tint
+		add_child(pool)
+		# curvy slide — 25% bigger, placed at a varied spot along the top edge so its
+		# bottom END dips INTO the water (not stranded in a corner).
+		if slide != null:
+			var sx: float = randf_range(float(px0) + 0.6, float(px1) + 0.4) * tile
+			var sl := _place_prop(slide, Vector2(sx, (float(py0) + 0.5) * tile), 2, 3.75, 0)
+			sl.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST   # stop the quarter-pixel vibrate
+			if night:
+				sl.modulate = night_tint
+		# an inner tube bobbing on the water
+		if not tubes.is_empty():
+			var off := Vector2(randf_range(-rw * 0.2, rw * 0.2), randf_range(-rh * 0.2, rh * 0.2))
+			_place_prop(tubes[randi() % tubes.size()], Vector2(cx, cy) + off, -1, 1.1, -1)
+		# NIGHT: a poolside round table with two chairs on the deck, like people lounging.
+		if night and chair != null and randf() < 0.6:
+			var ty: float = (float(py1) + 1.7) * tile
+			var tx: float = cx + randf_range(-tile, tile)
+			_place_prop(chair, Vector2(tx - tile * 0.7, ty), 0, 1.0, 0)
+			_place_prop(chair, Vector2(tx + tile * 0.7, ty), 0, 1.0, 1)
+
+# Pool Rooms (NIGHT only): mount coloured neon light bars flush on exposed wall faces,
+# oriented along the wall. Each glows its own colour (HDR-bright modulate → the scene's
+# bloom picks it up). Sparse — a few accent lights, not a wall of them. The DAY pool is
+# left clean (bright daylight, no fixtures).
+func _spawn_pool_wall_fixtures() -> void:
+	if _variant <= 3:
+		return   # night variants only
+	var strip: Texture2D = _ctex("res://assets/poolrooms/props/neon_strip.png")
+	if strip == null:
+		return
+	# HDR colours (channels > 1) so they bloom as fluorescent neon — pink, blue, violet, cyan.
+	var neon := [Color(2.2, 0.6, 1.4), Color(0.4, 0.9, 2.2), Color(1.3, 0.6, 2.2), Color(0.5, 2.0, 1.9)]
+	# Detect contiguous wall RUNS per exposed face and place lights evenly + centred on
+	# each run (so a run is symmetrical about its midpoint), not scattered randomly.
+	for nd in [Vector2i(0, -1), Vector2i(0, 1)]:   # horizontal faces → scan rows
+		for y in range(1, _fh - 1):
+			var x: int = 1
+			while x < _fw - 1:
+				if _wall[y][x] and not _wall[y + nd.y][x]:
+					var x0: int = x
+					while x < _fw - 1 and _wall[y][x] and not _wall[y + nd.y][x]:
+						x += 1
+					_run_lights(true, y, x0, x - 1, nd, strip, neon)
+				else:
+					x += 1
+	for nd2 in [Vector2i(-1, 0), Vector2i(1, 0)]:   # vertical faces → scan columns
+		for x2 in range(1, _fw - 1):
+			var y2: int = 1
+			while y2 < _fh - 1:
+				if _wall[y2][x2] and not _wall[y2][x2 + nd2.x]:
+					var y0: int = y2
+					while y2 < _fh - 1 and _wall[y2][x2] and not _wall[y2][x2 + nd2.x]:
+						y2 += 1
+					_run_lights(false, x2, y0, y2 - 1, nd2, strip, neon)
+				else:
+					y2 += 1
+
+# Place N evenly-spaced, centred fluorescent bars along one wall run, each with a soft
+# forward-only colour aura (a glow pushed INTO the room — it can't go through the wall).
+func _run_lights(horiz: bool, fixed: int, a0: int, a1: int, nd: Vector2i, strip: Texture2D, neon: Array) -> void:
+	var L: int = a1 - a0 + 1
+	# Far fewer lights now: skip short runs and ~45% of runs entirely, ~1 light per 10 tiles.
+	if L < 3 or randf() < 0.45:
+		return
+	var n: int = clampi(int(round(float(L) / 10.0)), 1, L)
+	var col: Color = neon[randi() % neon.size()]
+	var rot: float = 0.0 if horiz else PI * 0.5
+	for i in range(n):
+		var c: float = float(a0) * tile + (float(i) + 0.5) * float(L) * tile / float(n)
+		var pos: Vector2
+		if horiz:
+			pos = Vector2(c, (float(fixed) + 0.5) * tile + float(nd.y) * tile * 0.42)
+		else:
+			pos = Vector2((float(fixed) + 0.5) * tile + float(nd.x) * tile * 0.42, c)
+		var s := _place_prop(strip, pos, 4, 1.4, 0, rot)
+		s.modulate = col
+		# forward aura — glow hugs the light (small offset), brighter + more diffused
+		var glow := Sprite2D.new()
+		glow.texture = LightTex
+		glow.position = pos + Vector2(nd.x, nd.y) * (tile * 0.45)
+		var gs: float = (tile * 3.2) / float(LightTex.get_width())
+		glow.scale = Vector2(gs, gs)
+		glow.modulate = Color(col.r * 0.85, col.g * 0.85, col.b * 0.85, 0.78)
+		glow.z_index = 1
+		add_child(glow)
+		# expansive, super-faint OUTER halo on top of the bright core — reads like soft
+		# volumetric haze: dense colour at the light, fading way out to a pale tint.
+		var halo := Sprite2D.new()
+		halo.texture = LightTex
+		halo.position = pos + Vector2(nd.x, nd.y) * (tile * 1.0)
+		var hls: float = (tile * 7.5) / float(LightTex.get_width())
+		halo.scale = Vector2(hls, hls)
+		halo.modulate = Color(col.r * 0.5, col.g * 0.5, col.b * 0.5, 0.15)
+		halo.z_index = 1
+		add_child(halo)
+
+func _poolrooms_variants() -> Array:
+	# Liminal indoor pool. Two moods carried by the tile palette + light colour:
+	# DAY (sunlit cream ceramic, warm fluorescents) and NIGHT (cool grey ceramic,
+	# cold cyan fluorescents). Walls stay bright (ceramic), so face_shade is high.
+	# poollights are NOT scattered here — _spawn_pool_wall_fixtures() mounts them flush
+	# on wall faces (oriented along the wall). Real pools are carved by _spawn_pools().
+	var day := {"floor": "deck", "wall": "tile", "wall_top": "top", "face_shade": 0.86,
+		"wall_chance": 0.5,
+		"wall_props": [["lifering", 0.85], ["ladder", 1.1]],
+		"floor_props": [["drain", 0.6], ["floatring", 0.8]]}
+	var night := {"floor": "deck_n", "wall": "tile_n", "wall_top": "top_n", "face_shade": 0.8,
+		"wall_chance": 0.5,
+		"wall_props": [["lifering", 0.85], ["ladder", 1.1]],
+		"floor_props": [["drain", 0.6], ["floatring", 0.8]]}
+	return [
+		_merge(day, {"amb": Color(0.50, 0.50, 0.46)}),     # 1 Sunlit
+		_merge(day, {"amb": Color(0.46, 0.48, 0.50)}),     # 2 Overcast Day
+		_merge(day, {"amb": Color(0.52, 0.50, 0.42)}),     # 3 Warm Afternoon
+		_merge(night, {"amb": Color(0.16, 0.20, 0.26)}),   # 4 Midnight
+		_merge(night, {"amb": Color(0.12, 0.16, 0.22)}),   # 5 Deep Night
+	]
+
+func _space_variants(CY: Color) -> Array:
+	# Moon/asteroid surface — dark void ambient, rocky floor, scattered craters and
+	# asteroid debris. One accent prop glows faint cyan (impact energy).
+	var base := {"floor": "floor", "wall": "wall", "wall_top": "wall_top",
+		"face_shade": 0.7, "wall_chance": 0.6,
+		"wall_props": [["boulder3", 1.0], ["boulder4", 1.0], ["rubble", 0.9], ["ramp", 1.0]],
+		"floor_props": [["smallrock", 0.7], ["boulder1", 0.85], ["boulder2", 0.85], ["rubble", 0.8]]}
+	return [
+		_merge(base, {"amb": Color(0.10, 0.12, 0.22)}),   # 1 Deep Space
+		_merge(base, {"amb": Color(0.20, 0.10, 0.13)}),   # 2 Red Nebula
+		_merge(base, {"amb": Color(0.10, 0.18, 0.15)}),   # 3 Alien Green
+		_merge(base, {"amb": Color(0.16, 0.11, 0.22)}),   # 4 Cosmic Violet
+		_merge(base, {"amb": Color(0.14, 0.14, 0.16)}),   # 5 Lunar Gray
+	]
+
+func _cyber_variants(CY: Color, MA: Color, RE: Color, WA: Color, GR: Color, PU: Color) -> Array:
+	# Built from the player's own cut tileset (floors + 32px wall units cropped from
+	# the 48x32 facades). Each design swaps the wall facade, floor, mood + neon dressing.
+	# Shared neon street props are pulled from the neon pack via "neon/props/…".
+	# Reskinned to dylestorm's "Pixel Cyberpunk Interior" pack: metal panel floor + server
+	# racks / consoles / vending / neon signs / arcade cabs as wall fixtures, chairs + bunks
+	# as floor clutter. Walls keep the cut facade tiles (the interior pack ships no wall tile).
+	var tech := func(glow: Color) -> Array:
+		return [["server_bank", 2.6], ["server_desk", 2.2], ["console", 1.9],
+			["vending1", 1.4], ["vending2", 1.4], ["cabinet", 1.6],
+			["door_orange", 1.5], ["door", 1.5],
+			["neon_home", 1.7, MA, 1.0, 3.0], ["arcade", 1.9, glow, 0.9, 2.8]]
+	var furn := [["chair_red", 0.9], ["chair_red2", 0.9], ["chair_blue", 0.9],
+		["bed", 1.3], ["bed_blue", 1.3], ["bed_orange", 1.3]]
+	var base := {"floor": "floor_interior", "wall_top": "wall_top", "face_shade": 0.82,
+		"wall_chance": 0.7, "floor_chance": 0.55}
+	return [
+		# 1 Server Farm
+		_merge(base, {"wall": "circuits", "amb": Color(0.13, 0.17, 0.25),
+			"wall_props": tech.call(CY), "floor_props": furn}),
+		# 2 Red Sector
+		_merge(base, {"wall": "door", "amb": Color(0.24, 0.11, 0.14),
+			"wall_props": tech.call(RE), "floor_props": furn}),
+		# 3 Habitation Block
+		_merge(base, {"wall": "windows", "amb": Color(0.16, 0.13, 0.26),
+			"wall_props": tech.call(PU), "floor_props": furn}),
+		# 4 Toxic Lab
+		_merge(base, {"wall": "drips", "amb": Color(0.12, 0.20, 0.16),
+			"wall_props": tech.call(GR), "floor_props": furn}),
+		# 5 Checkpoint
+		_merge(base, {"wall": "doors", "amb": Color(0.22, 0.18, 0.12),
+			"wall_props": tech.call(WA), "floor_props": furn}),
+	]
+
+func _merge(a: Dictionary, b: Dictionary) -> Dictionary:
+	var r: Dictionary = a.duplicate(true)
+	for k in b:
+		r[k] = b[k]
+	return r
+
+func _damp_variants(WA: Color, CY: Color) -> Array:
+	# Each design = a different floor/wall material + prop dressing from the kit.
+	var dec := [["brazier", 1.1, WA, 1.0, 3.2]]
+	return [
+		# 1 Mossy Catacomb
+		{"floor": "cobble", "wall": "stone_dark", "amb": Color(0.17, 0.18, 0.20),
+			"wall_props": [["skullbanner", 1.6], ["barrel", 1.1], ["crate", 1.0], ["bookstack", 1.0]] + dec,
+			"floor_props": [["mushrooms", 0.9], ["bone", 0.6], ["skulls", 0.8], ["rock", 1.0]]},
+		# 2 Stone Keep
+		{"floor": "brick", "wall": "brick", "amb": Color(0.20, 0.18, 0.16),
+			"wall_props": [["throne", 1.6], ["chest", 1.1], ["barrel", 1.1], ["crate2", 1.0]] + dec,
+			"floor_props": [["gold", 0.8], ["crate", 1.0], ["box", 0.7]]},
+		# 3 Overgrown Ruin
+		{"floor": "green", "wall": "cobble", "amb": Color(0.16, 0.21, 0.17),
+			"wall_props": [["vine", 1.2], ["fern", 1.0], ["stalagmite", 1.3], ["rock2", 1.1]],
+			"floor_props": [["mushrooms", 0.9], ["mushroom3", 0.8], ["fern2", 0.9], ["rock3", 1.0]]},
+		# 4 Flooded Crypt
+		{"floor": "blue", "wall": "stone_dark", "amb": Color(0.13, 0.17, 0.24),
+			"wall_props": [["cauldron", 1.0, CY, 0.7, 2.6], ["skulls2", 0.9], ["rock", 1.0], ["pot", 1.0]],
+			"floor_props": [["bone", 0.6], ["skull", 0.6], ["rock2", 1.0], ["skulls", 0.8]]},
+		# 5 Crystal Cavern
+		{"floor": "stone_dark", "wall": "cobble", "amb": Color(0.13, 0.15, 0.22),
+			"wall_props": [["crystal2", 1.3, CY, 0.95, 3.2], ["stalagmite", 1.3], ["boulder", 1.7]] + dec,
+			"floor_props": [["crystal", 0.95, CY, 0.6, 2.0], ["rock2", 1.0], ["gold", 0.7]]},
+	]
+
+func _hand_variants(WA: Color) -> Array:
+	# Pen-and-ink dungeon: one ink floor/wall, recoloured per design by the ambient
+	# tint, with white line-art props. Torches glow warm.
+	# Torches are NOT placed via perimeter props — _spawn_hand_wall_torches()
+	# mounts them on the LEFT/RIGHT exposed faces of wall runs (hand level only).
+	var torch := []
+	var base := {"floor": "floor", "wall": "wall", "wall_top": "wall_top", "face_shade": 0.72}
+	return [
+		# Pillars and crate/barrel clusters are placed by dedicated hand passes
+		# (_spawn_hand_pillars / _spawn_hand_clusters), so they're kept OUT of these
+		# scatter pools — otherwise they'd also appear as lone singles.
+		# 1 Ink Slate (neutral)
+		_merge(base, {"amb": Color(0.20, 0.21, 0.26),
+			"wall_props": [["isoChest", 1.0]] + torch,
+			"floor_props": [["isobones", 0.7], ["isorock", 0.9]]}),
+		# 2 Sepia Catacomb
+		_merge(base, {"amb": Color(0.26, 0.21, 0.15),
+			"wall_props": [["isoChest2", 1.0], ["isobookcase", 1.4]] + torch,
+			"floor_props": [["isobones", 0.7], ["isobones2", 0.7], ["isogold", 0.6], ["isorock2", 0.9]]}),
+		# 3 Moonlit Blue
+		_merge(base, {"amb": Color(0.15, 0.18, 0.27),
+			"wall_props": [["isobed", 1.0], ["isobanner", 1.3]] + torch,
+			"floor_props": [["isorock", 0.9], ["isobush", 0.8], ["isobones", 0.7]]}),
+		# 4 Cursed Crimson
+		_merge(base, {"amb": Color(0.27, 0.14, 0.15),
+			"wall_props": [["isoChest", 1.0], ["isobanner", 1.3]] + torch,
+			"floor_props": [["isobones2", 0.7], ["isogold", 0.6], ["isolever", 0.8]]}),
+		# 5 Mossy Green
+		_merge(base, {"amb": Color(0.16, 0.23, 0.17),
+			"wall_props": [["isotree", 1.6], ["isobush", 1.0]] + torch,
+			"floor_props": [["isobush", 0.8], ["isorock2", 0.9], ["isobones", 0.7]]}),
+	]
+
 func _floor_texture() -> Texture2D:
+	if _lvl_floor != null:
+		return _lvl_floor
 	return _bk_floor if _bk_floor != null else FloorTex
 
 func _wall_texture() -> Texture2D:
+	if _lvl_wall != null:
+		return _lvl_wall
 	return _bk_wall if _bk_wall != null else WallTex
+
+# Cap texture for the lit TOP of walls. A theme can supply a plain slab so roofs
+# don't read as a wall of floating windows; otherwise caps with its body tex.
+func _wall_top_texture() -> Texture2D:
+	if _lvl_wall_top != null:
+		return _lvl_wall_top
+	return _wall_texture()
 
 func _load_tex_opt(path: String) -> Texture2D:
 	if ResourceLoader.exists(path):
@@ -2147,12 +3748,13 @@ func _spawn_loot(pos: Vector2, item: Dictionary) -> void:
 	c.radius = 34.0
 	cs.shape = c
 	area.add_child(cs)
-	var lamp := PointLight2D.new()
-	lamp.texture = LightTex
-	lamp.color = col
-	lamp.energy = 1.3
-	lamp.texture_scale = 1.3
-	area.add_child(lamp)
+	if not _flat_lit():   # flat-lit levels (backrooms / hand / cyber2077): no pickup aura
+		var lamp := PointLight2D.new()
+		lamp.texture = LightTex
+		lamp.color = col
+		lamp.energy = 1.3
+		lamp.texture_scale = 1.3
+		area.add_child(lamp)
 	# Weapon-type icon instead of a generic diamond: ball weapons show the bouncy
 	# ball, everything else shows a pizza slice (tinted to the weapon's colour).
 	var is_ball: bool = bool(item.get("ball", false))
@@ -2166,49 +3768,16 @@ func _spawn_loot(pos: Vector2, item: Dictionary) -> void:
 	var ibob := icon.create_tween().set_loops().set_trans(Tween.TRANS_SINE)
 	ibob.tween_property(icon, "position", Vector2(0, -7), 0.9)
 	ibob.tween_property(icon, "position", Vector2(0, 0), 0.9)
-	# Floating "Press E" prompt, hidden until the player stands on the drop.
-	var prompt := Label.new()
-	prompt.name = "Prompt"
-	prompt.text = "Press E"
-	prompt.add_theme_font_size_override("font_size", 15)
-	prompt.add_theme_color_override("font_color", Color(1.0, 0.95, 0.7))
-	prompt.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	prompt.add_theme_constant_override("outline_size", 4)
-	prompt.position = Vector2(-30, -46)
-	prompt.visible = false
-	area.add_child(prompt)
+	# Auto-collect on contact (Vampire-Survivors style). A drop levels a weapon you
+	# already hold, fills a free secondary slot as an AUTO-FIRING weapon, or (slots
+	# full) levels your weakest weapon. Your hero's PRIMARY is never swapped out — so
+	# no more obnoxious "give up the weapon you like?" pop-up.
 	area.body_entered.connect(func(b: Node) -> void:
 		if b.is_in_group("player"):
-			# Auto-sell SAME-or-lower rarity (opt-in): commit to your weapon and only
-			# stop for genuinely rarer drops. Higher rarity always stays for an E pick.
-			if ArpgState.auto_sell_rarity and not ArpgState.weapon.is_empty() \
-					and int(item.get("rarity", 0)) <= int(ArpgState.weapon.get("rarity", 0)):
-				var v: int = ArpgState.weapon_sell_value(item)
-				ArpgState.gold += v
-				ArpgState.emit_signal("stats_changed")
-				ArpgState.emit_signal("toast", "+%d gold (auto-sold %s)" % [v, ArpgState.RARITY_NAMES[int(item.get("rarity", 0))]], Color(1.0, 0.85, 0.4))
-				if is_instance_valid(area):
-					area.queue_free()
-				return
-			# Clearly-weaker drops auto-sell for coins on contact — no pop-up nag.
-			if _weapon_is_junk(item):
-				# Trash auto-sells for a token amount only — not a farmable income.
-				var sell: int = mini(ArpgState.weapon_sell_value(item), 3)
-				ArpgState.gold += sell
-				ArpgState.emit_signal("stats_changed")
-				ArpgState.emit_signal("toast", "+%d gold (scrapped weak drop)" % sell, Color(1.0, 0.85, 0.4))
-				if is_instance_valid(area):
-					area.queue_free()
-				return
-			_near_loot_item = item
-			_near_loot_area = area
-			prompt.visible = true)
-	area.body_exited.connect(func(b: Node) -> void:
-		if b.is_in_group("player"):
-			prompt.visible = false
-			if _near_loot_area == area:
-				_near_loot_item = {}
-				_near_loot_area = null)
+			var msg: String = ArpgState.collect_weapon(item)
+			ArpgState.emit_signal("toast", msg, item.get("color", Color(1.0, 0.85, 0.4)))
+			if is_instance_valid(area):
+				area.queue_free())
 	add_child(area)
 
 # ── weapon pickup comparison ─────────────────────────────────────────────────
@@ -2487,7 +4056,7 @@ func _show_level_up() -> void:
 	var title := Label.new()
 	title.text = "LEVEL  %d" % ArpgState.level
 	title.add_theme_font_size_override("font_size", 56)
-	title.add_theme_color_override("font_color", Color(1.0, 0.86, 0.3))
+	title.add_theme_color_override("font_color", Color(0.45, 0.95, 0.85))
 	title.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
 	title.add_theme_constant_override("outline_size", 6)
 	var lf := FontFile.new()
@@ -2500,8 +4069,8 @@ func _show_level_up() -> void:
 	# ── current-stats panel (left) — hovering a card previews its effect ──────────
 	var sp := PanelContainer.new()
 	var spsb := StyleBoxFlat.new()
-	spsb.bg_color = Color(0.07, 0.07, 0.11, 0.96)
-	spsb.set_border_width_all(2); spsb.border_color = Color(0.5, 0.55, 0.7, 0.7)
+	spsb.bg_color = Color(0.08, 0.10, 0.15, 0.96)
+	spsb.set_border_width_all(2); spsb.border_color = Color(0.27, 0.85, 0.74, 0.5)
 	spsb.set_corner_radius_all(12); spsb.set_content_margin_all(16)
 	sp.add_theme_stylebox_override("panel", spsb)
 	# Centre the whole [stats | cards] group in the viewport (was hard-coded left).
@@ -2518,7 +4087,7 @@ func _show_level_up() -> void:
 	var sphdr := Label.new()
 	sphdr.text = "YOUR  STATS"
 	sphdr.add_theme_font_size_override("font_size", 20)
-	sphdr.add_theme_color_override("font_color", Color(0.95, 0.86, 0.5))
+	sphdr.add_theme_color_override("font_color", Color(0.45, 0.95, 0.85))
 	spv.add_child(sphdr)
 	var hp_now: int = int(_player.max_health) if is_instance_valid(_player) and "max_health" in _player else 0
 	var stat_defs: Array = [
@@ -2556,15 +4125,16 @@ func _show_level_up() -> void:
 		card.custom_minimum_size = Vector2(240, 180)
 		card.focus_mode = Control.FOCUS_NONE
 		var col: Color = opt.get("color", Color(1, 0.9, 0.5))
-		# Parchment card (design 2) with an accent (rarity) border.
+		# Modern-dark card: dark surface + the rarity colour as a bright accent border.
 		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.925, 0.87, 0.73)
-		sb.set_border_width_all(4); sb.border_color = col.darkened(0.12)
+		sb.bg_color = Color(0.10, 0.13, 0.18)
+		sb.set_border_width_all(3); sb.border_color = col
 		sb.set_corner_radius_all(12)
-		sb.shadow_color = Color(0, 0, 0, 0.4); sb.shadow_size = 7; sb.shadow_offset = Vector2(2, 5)
+		sb.shadow_color = Color(0, 0, 0, 0.5); sb.shadow_size = 8; sb.shadow_offset = Vector2(2, 5)
 		card.add_theme_stylebox_override("normal", sb)
 		var hov := sb.duplicate() as StyleBoxFlat
-		hov.bg_color = Color(0.965, 0.915, 0.79)
+		hov.bg_color = Color(0.14, 0.20, 0.25)
+		hov.set_border_width_all(4)
 		card.add_theme_stylebox_override("hover", hov)
 		card.add_theme_stylebox_override("pressed", hov)
 		var vb := VBoxContainer.new()
@@ -2576,7 +4146,7 @@ func _show_level_up() -> void:
 		var nm := Label.new()
 		nm.text = String(opt.get("name", "?"))
 		nm.add_theme_font_size_override("font_size", 22)
-		nm.add_theme_color_override("font_color", Color(0.29, 0.19, 0.086))
+		nm.add_theme_color_override("font_color", Color(0.95, 0.97, 1.0))
 		nm.add_theme_font_override("font", pf)
 		nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -2584,7 +4154,7 @@ func _show_level_up() -> void:
 		var ds := Label.new()
 		ds.text = String(opt.get("desc", ""))
 		ds.add_theme_font_size_override("font_size", 17)
-		ds.add_theme_color_override("font_color", Color(0.46, 0.34, 0.21))
+		ds.add_theme_color_override("font_color", Color(0.64, 0.72, 0.82))
 		ds.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		ds.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		vb.add_child(ds)
@@ -2593,7 +4163,7 @@ func _show_level_up() -> void:
 			var pl := Label.new()
 			pl.text = prev
 			pl.add_theme_font_size_override("font_size", 15)
-			pl.add_theme_color_override("font_color", Color(0.56, 0.43, 0.28))
+			pl.add_theme_color_override("font_color", Color(0.45, 0.85, 0.78))
 			pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			vb.add_child(pl)
 		# Hover → light up the affected stat in the panel with its new value.
@@ -2712,21 +4282,27 @@ func _build_hud() -> void:
 	var has_ui_font: bool = ui_font.load_dynamic_font("res://assets/anton.ttf") == OK
 	if has_ui_font:
 		_hud_toast.add_theme_font_override("font", ui_font)
-	# Run timer — top-left info panel (beside the level row) AND big bottom-right.
-	_hud_time_tl = _mk_label(layer, Vector2(196, 52), 18, Color(0.85, 0.9, 1.0))
+	# Run timer — a neat little box in the BOTTOM-RIGHT (stage time + Σ total run time).
+	var tpanel := Panel.new()
+	var tsb := StyleBoxFlat.new()
+	tsb.bg_color = Color(0.04, 0.05, 0.09, 0.55)
+	tsb.set_corner_radius_all(8)
+	tsb.set_border_width_all(1); tsb.border_color = Color(1, 1, 1, 0.12)
+	tpanel.add_theme_stylebox_override("panel", tsb)
+	tpanel.position = Vector2(1264, 722); tpanel.size = Vector2(172, 66)
+	tpanel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(tpanel)
+	_hud_time_tl = _mk_label(layer, Vector2(1274, 728), 22, Color(0.9, 0.94, 1.0))
 	_hud_time_tl.text = "0:00"
+	_hud_time_tl.size = Vector2(152, 28); _hud_time_tl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	if has_ui_font:
 		_hud_time_tl.add_theme_font_override("font", ui_font)
-	# Second line: TOTAL run time (across all floors), dimmer + smaller below the stage time.
-	_hud_time_total = _mk_label(layer, Vector2(196, 76), 14, Color(0.62, 0.7, 0.86))
+	_hud_time_total = _mk_label(layer, Vector2(1274, 760), 14, Color(0.62, 0.7, 0.86))
 	_hud_time_total.text = "Σ 0:00"
+	_hud_time_total.size = Vector2(152, 20); _hud_time_total.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	if has_ui_font:
 		_hud_time_total.add_theme_font_override("font", ui_font)
-	# FPS counter — top-left corner, whole numbers.
-	_hud_fps = _mk_label(layer, Vector2(16, 14), 16, Color(0.55, 1.0, 0.65))
-	_hud_fps.text = "-- fps"
-	if has_ui_font:
-		_hud_fps.add_theme_font_override("font", ui_font)
+	# (FPS counter removed — no longer needed.)
 	# (Auto-sell toggle moved to the pause menu — press Esc → Options.)
 	# Boss health bar (top-centre, hidden until the guardian is engaged).
 	_hud_boss_root = Control.new()
@@ -2766,8 +4342,12 @@ func _refresh_hud() -> void:
 	_hud_gold.text = "⛁ %d gold" % ArpgState.gold
 	var w: Dictionary = ArpgState.weapon
 	var rar: int = int(w.get("rarity", 0))
-	# Just "<Rarity> <Name>", coloured by rarity — the stats string overflowed the panel.
-	_hud_weapon.text = "%s %s" % [ArpgState.RARITY_NAMES[rar], w.get("name", "—")]
+	# Primary "<Name> Lv", coloured by rarity, then any auto-firing secondaries.
+	var line: String = "%s Lv%d" % [w.get("name", "—"), int(w.get("lvl", 1))]
+	var extras: Array = ArpgState.extra_weapons
+	for e in extras:
+		line += "  +  %s Lv%d" % [String((e as Dictionary).get("name", "?")), int((e as Dictionary).get("lvl", 1))]
+	_hud_weapon.text = line
 	_hud_weapon.add_theme_color_override("font_color", ArpgState.RARITY_COLORS[rar])
 	var frac: float = float(ArpgState.xp) / float(max(1, ArpgState.xp_to_next))
 	_hud_xp_fill.size.x = 238.0 * clampf(frac, 0.0, 1.0)

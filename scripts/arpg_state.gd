@@ -19,11 +19,36 @@ var xp_to_next: int = 6
 var gold: int = 0
 var weapon: Dictionary = {}
 var dungeon_path: String = "res://scenes/dungeon.tscn"
+# Biome rotation — each new floor randomly picks one of these (no immediate repeat).
+const BIOMES: Array = [
+	"res://scenes/dungeon.tscn",     # cave (the classic)
+	"res://scenes/cyber2077.tscn",   # cyberpunk building (the big-tile one we kept)
+	"res://scenes/damp.tscn",        # stone & moss
+	"res://scenes/hand.tscn",        # pen & ink
+	"res://scenes/space.tscn",       # moon / asteroid surface
+	"res://scenes/poolrooms.tscn",   # liminal indoor pool (day/night variants)
+	"res://scenes/wheat.tscn",       # outdoor field of wheat (hedgerow maze)
+	"res://scenes/sewer.tscn",       # flooded sewers (AI-generated brick)
+	"res://scenes/suburb.tscn",      # suburban neighbourhood (AI-generated tiles)
+]
+var _last_biome: String = "res://scenes/dungeon.tscn"
 var light_mode: int = 1   # which live lighting preset is active (persists across floors)
 var light_boost: int = 1  # 1-5 brightness pump on all light sources (persists)
 var brightness_level: int = 2  # dungeon darkness preset 1=dark 2=medium 3=bright (persists)
-var auto_sell_rarity: bool = false  # auto-sell drops of same-or-lower rarity (persists)
+var auto_sell_rarity: bool = true   # ON by default — auto-sell WEAKER drops automatically (no pause-menu toggle needed)
 var backrooms_next: bool = false    # next floor loads as a BACKROOMS stage (boss-portal)
+# Forced floor sequence (scene paths) that overrides the random biome pick — used to
+# script set-piece runs, e.g. backrooms portal → pool rooms → field of wheat.
+var scripted_queue: Array = []
+# True when a level was launched from the dev Level Select (a one-off test, not a run) —
+# Esc then exits straight back to Level Select instead of opening the pause menu.
+var level_lab: bool = false
+# The lab level you're currently in, so Level Select can offer "Resume" back to it
+# instead of only dumping you to the title.
+var last_lab_scene: String = ""
+# True when the current floor was entered through a HUB door — clearing it returns to the Hub.
+var return_to_hub: bool = false
+var pending_variant: int = 0        # dev level-lab picks a design variant (1-5; 0 = use scene default)
 var enemy_bright: int = 1 # 1-3 enemy self-illumination (persists)
 var backrooms_pack: int = 5  # backrooms asset pack (locked to 5 — the chosen look)
 var no_projectile_glow: bool = false  # backrooms turns off the projectile glow
@@ -68,6 +93,35 @@ const ARCHETYPES := [
 	# weight 0.33 → rolls ~1/3 as often as the other weapons (a lucky find).
 	{"name": "Bouncy Blaster",   "count": 1, "cooldown": 0.26, "speed": 620.0, "dmg": 4,  "color": Color(1, 1, 1), "ball": true, "bounces": 9, "weight": 0.33},
 ]
+
+# ── Heroes (Vampire-Survivors style) ─────────────────────────────────────────
+# Each hero LOCKS IN a primary weapon you keep the whole run (your identity), plus
+# a small passive routed through the existing run-upgrade vars (no new combat
+# plumbing). Floor drops add AUTO-FIRING secondary weapons instead of swapping the
+# primary out from under you.
+const HEROES: Array = [
+	{
+		"id": "finn", "name": "Finn", "weapon": "Pepperoni Slicer",
+		"color": Color(1.0, 0.78, 0.42),
+		"blurb": "Nimble all-rounder. +10% move speed.",
+		"passive": {"speed": 0.10},
+	},
+	{
+		"id": "rupert", "name": "Rupert", "weapon": "Bouncy Blaster",
+		"color": Color(0.82, 0.88, 1.0),
+		"blurb": "Chaos bouncer. +15% fire rate fills the room with ricocheting balls.",
+		"passive": {"firerate": 0.15},
+	},
+	{
+		"id": "patch", "name": "Patch", "weapon": "Deep-Dish Cannon",
+		"color": Color(1.0, 0.45, 0.32),
+		"blurb": "Heavy bruiser. +15% damage and +2 HP, but a touch slower.",
+		"passive": {"dmg": 0.15, "maxhp": 2, "speed": -0.08},
+	},
+]
+var hero_id: String = "finn"
+var extra_weapons: Array = []          # secondary AUTO-FIRING weapons (≤ MAX_EXTRA_WEAPONS)
+const MAX_EXTRA_WEAPONS: int = 2
 
 const WEAPON_MAX_LVL: int = 8
 
@@ -191,6 +245,12 @@ func reset_run() -> void:
 	run_time = 0.0
 	Stats.start_run()
 	depth = 1
+	dungeon_path = "res://scenes/dungeon.tscn"   # floor 1 = the cave (familiar start)
+	_last_biome = dungeon_path
+	scripted_queue.clear()
+	level_lab = false
+	last_lab_scene = ""
+	return_to_hub = false
 	level = 1
 	xp = 0
 	xp_to_next = 6
@@ -210,20 +270,42 @@ func reset_run() -> void:
 	light_boost = 1
 	enemy_bright = 1
 	backrooms_pack = 5
-	weapon = _starter_weapon()
+	# Hero pick: clear secondary slots, apply the hero passive through existing run
+	# vars, and start with the hero's signature weapon as the manually-aimed primary.
+	extra_weapons.clear()
+	var hero: Dictionary = hero_data()
+	var passive: Dictionary = hero.get("passive", {})
+	dmg_mult += float(passive.get("dmg", 0.0))
+	cooldown_mult *= (1.0 - float(passive.get("firerate", 0.0)))
+	speed_mult += float(passive.get("speed", 0.0))
+	bonus_maxhp += int(passive.get("maxhp", 0))
+	crit_chance += float(passive.get("crit", 0.0))
+	weapon = _hero_starter_weapon(hero)
 	Stats.weapon_equipped(String(weapon.get("name", "?")))
 	emit_signal("weapon_changed", weapon)
 	emit_signal("stats_changed")
 
 # ── effective combat stats (weapon + run upgrades) ──────────────────────────
+# The *_of(w) variants evaluate an ARBITRARY weapon dict (so the auto-firing
+# secondary weapons can compute their own damage/rate/count); the bare versions
+# operate on the equipped primary.
+func weapon_damage_of(w: Dictionary) -> int:
+	return int(ceil(float(w.get("dmg", 1)) * dmg_mult)) + bonus_damage()
+
+func weapon_cooldown_of(w: Dictionary) -> float:
+	return maxf(0.06, float(w.get("cooldown", 0.34)) * cooldown_mult)
+
+func weapon_count_of(w: Dictionary) -> int:
+	return int(w.get("count", 1)) + bonus_projectiles
+
 func weapon_damage() -> int:
-	return int(ceil(float(weapon.get("dmg", 1)) * dmg_mult)) + bonus_damage()
+	return weapon_damage_of(weapon)
 
 func weapon_cooldown() -> float:
-	return maxf(0.06, float(weapon.get("cooldown", 0.34)) * cooldown_mult)
+	return weapon_cooldown_of(weapon)
 
 func weapon_count() -> int:
-	return int(weapon.get("count", 1)) + bonus_projectiles
+	return weapon_count_of(weapon)
 
 # ── DPS-based difficulty scaling ─────────────────────────────────────────────
 # Estimates the player's current damage potential so the dungeon can scale enemy
@@ -256,6 +338,74 @@ func rolled_crit() -> bool:
 func _starter_weapon() -> Dictionary:
 	return _build_weapon(ARCHETYPES[0], 1, 0)
 
+# ── heroes ───────────────────────────────────────────────────────────────────
+func hero_data() -> Dictionary:
+	for h in HEROES:
+		if String((h as Dictionary).get("id", "")) == hero_id:
+			return h
+	return HEROES[0]
+
+func set_hero(id: String) -> void:
+	for h in HEROES:
+		if String((h as Dictionary).get("id", "")) == id:
+			hero_id = id
+			return
+
+func _hero_starter_weapon(hero: Dictionary) -> Dictionary:
+	var arch: Dictionary = _archetype_by_name(String(hero.get("weapon", "Pepperoni Slicer")))
+	return _build_weapon(arch, 1, 0)
+
+# ── multi-weapon collection (floor drops) ────────────────────────────────────
+# Floor drops NEVER swap your hero's primary. A duplicate type levels the weapon
+# you already hold; a new type fills a free secondary slot (auto-firing); if all
+# slots are full the drop pours into your weakest weapon as a level. Returns a
+# short toast string describing what happened.
+func collect_weapon(item: Dictionary) -> String:
+	var iname: String = String(item.get("name", "Weapon"))
+	# 1) Already wielding this type? Level it up (primary first, then extras).
+	if String(weapon.get("name", "")) == iname:
+		weapon = _leveled(weapon)
+		emit_signal("weapon_changed", weapon)
+		emit_signal("stats_changed")
+		return "%s  →  Lv %d" % [iname, int(weapon.get("lvl", 1))]
+	for i in extra_weapons.size():
+		if String((extra_weapons[i] as Dictionary).get("name", "")) == iname:
+			extra_weapons[i] = _leveled(extra_weapons[i])
+			emit_signal("stats_changed")
+			return "%s  →  Lv %d" % [iname, int((extra_weapons[i] as Dictionary).get("lvl", 1))]
+	# 2) Free slot → add it as a new auto-firing secondary weapon.
+	if extra_weapons.size() < MAX_EXTRA_WEAPONS:
+		extra_weapons.append(item.duplicate(true))
+		Stats.weapon_equipped(iname)
+		emit_signal("stats_changed")
+		return "NEW WEAPON:  %s  (slot %d)" % [iname, extra_weapons.size() + 1]
+	# 3) Slots full → pour it into your weakest weapon as a level.
+	var widx: int = _weakest_weapon_index()
+	if widx == 0:
+		weapon = _leveled(weapon)
+		emit_signal("weapon_changed", weapon)
+	else:
+		extra_weapons[widx - 1] = _leveled(extra_weapons[widx - 1])
+	emit_signal("stats_changed")
+	return "Slots full — leveled your weakest weapon"
+
+# Rebuild a weapon dict one level higher along its evolution path.
+func _leveled(w: Dictionary) -> Dictionary:
+	var arch: Dictionary = _archetype_by_name(String(w.get("name", "")))
+	var lvl: int = mini(WEAPON_MAX_LVL, int(w.get("lvl", 1)) + 1)
+	return _build_weapon(arch, lvl, int(w.get("rarity", 0)))
+
+# 0 = primary, 1.. = extra_weapons[idx-1]. Lowest DPS-score wins.
+func _weakest_weapon_index() -> int:
+	var best_i: int = 0
+	var best: float = _score(weapon)
+	for i in extra_weapons.size():
+		var s: float = _score(extra_weapons[i])
+		if s < best:
+			best = s
+			best_i = i + 1
+	return best_i
+
 # ── loot generation ────────────────────────────────────────────────────────
 func roll_rarity() -> int:
 	# Deeper floors skew rarer. Floor 1 is now mostly commons (~76%) so a Magic+
@@ -280,12 +430,31 @@ func _pick_archetype() -> Dictionary:
 	return ARCHETYPES[0]
 
 func roll_weapon() -> Dictionary:
-	# Rarity now means HOW FAR ALONG ITS LEVEL PATH a dropped weapon starts —
-	# a Rare drop is "already Lv3", not just a common with bigger numbers.
+	# SIDEGRADE, not gamble: the floor drop is always a DIFFERENT archetype, scaled
+	# (by level) so its effective DPS is at least on par with your current weapon —
+	# never a strict downgrade, just a different playstyle. Rarity still sets how far
+	# along its level path it starts (and its sell value).
+	var cur_name: String = String(weapon.get("name", "")) if not weapon.is_empty() else ""
 	var arch: Dictionary = _pick_archetype()
+	for _t in 6:                                   # avoid re-offering the gun you already hold
+		if String(arch.get("name", "")) != cur_name:
+			break
+		arch = _pick_archetype()
 	var rar: int = roll_rarity()
-	var lvl: int = mini(WEAPON_MAX_LVL, 1 + rar)
-	return _build_weapon(arch, lvl, rar)
+	# Match on RAW throughput (dmg×count÷cooldown), NOT the pierce/bounce-inflated effective
+	# DPS — raw parity keeps swaps as true sidegrades (no 5x ratchet).
+	# CRUCIAL: the drop level is hard-capped by DEPTH (+rarity). Without this, a weak
+	# archetype got leveled all the way to Lv8 just to match your card-leveled weapon —
+	# so floor 2 handed you "Cheese Spike Lv8" with 2x DPS ("wtf"). Now floor 2 commons
+	# top out around Lv2-3; the cap rises ~1 level every 2 floors.
+	var target: float = _score(weapon) if not weapon.is_empty() else 0.0
+	var lvl_cap: int = clampi(1 + rar + int(ceil(float(depth) / 2.0)), 1, WEAPON_MAX_LVL)
+	var lvl: int = mini(lvl_cap, 1 + rar)
+	var w: Dictionary = _build_weapon(arch, lvl, rar)
+	while lvl < lvl_cap and _score(w) < target:
+		lvl += 1
+		w = _build_weapon(arch, lvl, rar)
+	return w
 
 func _score(w: Dictionary) -> float:
 	# Rough DPS-ish value so "is this drop better?" is answerable.
@@ -294,8 +463,10 @@ func _score(w: Dictionary) -> float:
 # Coins you get for declining a floor drop — scales with rarity and depth so a
 # rare drop you skip still feels worth something.
 func weapon_sell_value(w: Dictionary) -> int:
+	# Trimmed ~40%: auto-selling every floor drop was minting more gold than anyone
+	# could spend. Rarer/deeper still pays more, just not a flood.
 	var rar: int = clampi(int(w.get("rarity", 0)), 0, 3)
-	return 2 + rar * 3 + depth
+	return 1 + rar * 2 + int(depth / 2)
 
 # Effective stats for a weapon dict (folds in global run upgrades) — used by the
 # floor-pickup comparison cards so the numbers match what you'd actually deal.
@@ -303,13 +474,15 @@ func weapon_eval(w: Dictionary) -> Dictionary:
 	var dmg: int = int(ceil(float(w.get("dmg", 1)) * dmg_mult)) + bonus_damage()
 	var cd: float = maxf(0.06, float(w.get("cooldown", 0.34)) * cooldown_mult)
 	var cnt: int = int(w.get("count", 1)) + bonus_projectiles
-	# EFFECTIVE DPS — pierce/bounce hit extra enemies, which the raw single-target
-	# number ignored, making heavy piercing weapons (e.g. Deep-Dish) read as strict
-	# downgrades. In this swarm game a piercing shot reliably catches a 2nd mob, so
-	# each pierce ≈ +70% throughput, each bounce ≈ +30%.
+	# EFFECTIVE DPS — pierce/bounce catch extra enemies, so they're worth more than the raw
+	# single-target number. But the bonus has DIMINISHING RETURNS and a hard CAP: a 19-bounce
+	# gun does NOT do 19× — most bounces hit walls, not mobs. Without the cap the comparison
+	# card read "2312 DPS" it could never actually deal. Pierce is more reliable than bounce.
 	var pierce: int = int(w.get("pierce", 0))
 	var bounces: int = int(w.get("bounces", 0))
-	var eff: float = (float(dmg * cnt) / cd) * (1.0 + 0.7 * float(pierce)) * (1.0 + 0.3 * float(bounces))
+	var multi: float = 1.0 + 0.5 * float(pierce) + 0.16 * float(bounces)
+	multi = minf(multi, 2.4)   # at most ~2.4× from multi-hit, no matter how silly the stat
+	var eff: float = (float(dmg * cnt) / cd) * multi
 	return {
 		"dps": eff,
 		"dmg": dmg,
@@ -366,7 +539,26 @@ func add_xp(amount: int) -> void:
 func descend() -> void:
 	depth += 1
 	Stats.note_floor(depth)
+	# Rotate to a fresh biome for the next floor (skip if a boss-portal forced a
+	# backrooms stage). Themed levels also get a random design variant.
+	if not backrooms_next:
+		if not scripted_queue.is_empty():
+			# Authored sequence (e.g. pool rooms → wheat after the backrooms portal):
+			# pull the next forced scene instead of rolling a random biome.
+			dungeon_path = String(scripted_queue.pop_front())
+			_last_biome = dungeon_path
+		else:
+			dungeon_path = _pick_biome()
+		pending_variant = randi_range(1, 5)
 	emit_signal("stats_changed")
+
+func _pick_biome() -> String:
+	var pool: Array = BIOMES.duplicate()
+	pool.erase(_last_biome)        # avoid the same biome twice in a row
+	if pool.is_empty():
+		pool = BIOMES.duplicate()
+	_last_biome = pool[randi() % pool.size()]
+	return _last_biome
 
 # Player stat scaling from level + shop (loot supplies the weapon).
 func bonus_max_health() -> int:
@@ -420,7 +612,7 @@ func generate_shop(_count: int = 5) -> Array:
 		{"id": "firerate",  "name": "Greased Oven",         "desc": "+12% Fire Rate (all)", "color": Color(1.0, 0.85, 0.4)},
 		{"id": "crit",      "name": "Spicy Pepperoni",      "desc": "+7% Crit Chance",   "color": Color(1.0, 0.4, 0.7)},
 		{"id": "speed",     "name": "Roller Skates",        "desc": "+8% Move Speed",     "color": Color(0.5, 0.8, 1.0)},
-		{"id": "weapon",    "name": "New Weapon!",          "desc": "Trade your weapon for a random new type — GUARANTEED Rare or better. You keep half its level.", "color": Color(1.0, 0.78, 0.25)},
+		{"id": "weapon",    "name": "New Weapon!",          "desc": "Swap to a different weapon type, auto-scaled to match your current power. Never a downgrade — just a fresh playstyle.", "color": Color(1.0, 0.78, 0.25)},
 	]
 	if crit_chance >= 0.50:   # crit capped — drop the dead "50% → 50%" offer
 		pool = pool.filter(func(c: Dictionary) -> bool: return String(c.get("id", "")) != "crit")
@@ -499,15 +691,16 @@ func apply_upgrade(item: Dictionary) -> void:
 			"speed":     speed_mult += 0.08
 			"back_shot": back_shot = true
 			"weapon":
-				# Mystery Box: a fresh random weapon TYPE, guaranteed Rare+. Carries
-				# half your current level (try_equip rules) so it's a gamble on TYPE,
-				# not a progress wipe.
+				# Mystery Box: a fresh random weapon TYPE, guaranteed Rare+. Goes into a
+				# free secondary slot (or levels a matching/weakest weapon) — never wipes
+				# your hero's primary.
 				var rolled: Dictionary = roll_weapon()
 				for _try in 8:
 					if int(rolled.get("rarity", 0)) >= 2:
 						break
 					rolled = roll_weapon()
-				try_equip(rolled)
+				var msg: String = collect_weapon(rolled)
+				emit_signal("toast", msg, Color(1.0, 0.8, 0.3))
 	emit_signal("stats_changed")
 
 # Three random upgrade choices shown on level-up (mix of global boons + upgrades
