@@ -14,8 +14,7 @@ extends Node
 
 const OWNER := "trophyscar-bit"
 const REPO := "bear-crawl"
-const ATTEMPT_PATH := "user://update_attempt.json"   # remembers the version we last tried to swap to
-const MAX_ATTEMPTS := 2                               # give up after this many failed swaps for one version
+const ATTEMPT_PATH := "user://update_attempt.json"   # remembers the version we last tried to swap to (attempt-once guard)
 
 signal status_changed(message: String, update_available: bool)
 
@@ -84,23 +83,25 @@ func _on_request_completed(result: int, code: int, _headers: PackedStringArray, 
 				_exe_url = str((a as Dictionary).get("browser_download_url", ""))
 				break
 		if _is_newer(_latest_tag, current_version()) and not OS.has_feature("editor") and _exe_url != "":
-			# Loop guard: if we already TRIED to auto-update to this exact version on a
-			# previous launch and we're STILL on an older build, the exe swap is failing
-			# (file lock / permission / read-only install dir). Re-running it would loop
-			# forever showing the "Updating" screen on every launch. After MAX_ATTEMPTS
-			# we give up on THIS version and just let them play the current build.
+			# ── BULLETPROOF LOOP GUARD ──────────────────────────────────────────────
+			# Attempt each version AT MOST ONCE, ever. The marker records the version we
+			# last auto-attempted. If we already attempted THIS exact version on a prior
+			# launch and we're STILL on an older build, the swap is failing in this
+			# environment (OneDrive sync, file lock, read-only dir). Re-running it would
+			# loop the "Updating" screen forever — so we STOP and tell them to update
+			# manually. The marker is only cleared once we're actually up to date, so a
+			# version that fails to install is never auto-retried.
 			var att: Dictionary = _load_attempt()
-			var same: bool = str(att.get("tag", "")) == _latest_tag
-			var tries: int = int(att.get("count", 0)) if same else 0
-			if tries >= MAX_ATTEMPTS:
+			if str(att.get("tag", "")) == _latest_tag:
 				emit_signal("status_changed",
-					"Auto-update to v%s failed — running current build (update manually)" % _latest_tag, false)
+					"Update v%s is ready but couldn't auto-install here — download it manually from GitHub." % _latest_tag, false)
 				return
-			_save_attempt(_latest_tag, tries + 1)
+			_save_attempt(_latest_tag, 1)
 			emit_signal("status_changed", "Updating to v%s" % _latest_tag, true)
 			_begin_auto_update()
 		else:
-			# Up to date (or the swap finally took) — clear any stale attempt marker.
+			# Up to date (the swap took, or we built newer) — clear the attempt marker so
+			# a FUTURE version gets its own single attempt.
 			_clear_attempt()
 			emit_signal("status_changed", "Up to date (v%s)" % current_version(), false)
 	elif _mode == "download":
