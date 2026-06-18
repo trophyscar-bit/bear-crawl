@@ -4341,14 +4341,9 @@ func _refresh_hud() -> void:
 	_hud_level.text = "Lv %d   ·   Floor %d" % [ArpgState.level, ArpgState.depth]
 	_hud_gold.text = "⛁ %d gold" % ArpgState.gold
 	var w: Dictionary = ArpgState.weapon
-	var rar: int = int(w.get("rarity", 0))
-	# Primary "<Name> Lv", coloured by rarity, then any auto-firing secondaries.
-	var line: String = "%s Lv%d" % [w.get("name", "—"), int(w.get("lvl", 1))]
-	var extras: Array = ArpgState.extra_weapons
-	for e in extras:
-		line += "  +  %s Lv%d" % [String((e as Dictionary).get("name", "?")), int((e as Dictionary).get("lvl", 1))]
-	_hud_weapon.text = line
-	_hud_weapon.add_theme_color_override("font_color", ArpgState.RARITY_COLORS[rar])
+	# Weapon name + chosen branch/tier (e.g. "Pizza · Homing Pie 2/3").
+	_hud_weapon.text = ArpgState.weapon_summary()
+	_hud_weapon.add_theme_color_override("font_color", w.get("color", Color(0.9, 0.9, 1.0)))
 	var frac: float = float(ArpgState.xp) / float(max(1, ArpgState.xp_to_next))
 	_hud_xp_fill.size.x = 238.0 * clampf(frac, 0.0, 1.0)
 

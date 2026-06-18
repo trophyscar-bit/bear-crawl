@@ -13,8 +13,12 @@ var is_crit: bool = false   # set by the player on a crit roll → coloured dama
 @export var burst_on_impact: bool = false
 @export var apply_burn: bool = false
 @export var pierce: int = 0  # how many additional enemies the pizza passes through
+@export var split_on_hit: int = 0  # Pizza Party: on first enemy hit, burst into N mini homing pizzas
+var _is_split_child: bool = false  # a mini pizza spawned by a split — never splits again
+var _did_split: bool = false       # split fires once, not on every pierce hit
 
 const ExplosionScene := preload("res://scenes/explosion.tscn")
+const PizzaScene := preload("res://scenes/pizza.tscn")
 
 const BURST_RADIUS: float = 78.0
 const BURN_DPS: int = 1
@@ -28,6 +32,8 @@ var _bounces_done: int = 0
 var _post_bounce_distance: float = 0.0
 var _wall_grace: float = 0.0   # brief window after a bounce where walls are ignored
 var _hit_ids: Dictionary = {}  # enemy instance_ids already damaged by this pizza
+var _home_target: Node2D = null   # cached homing target (re-acquired on a throttle)
+var _home_t: float = 0.0          # countdown to next target re-acquire
 
 func _ready() -> void:
 	if direction == Vector2.ZERO:
@@ -43,8 +49,15 @@ func _physics_process(delta: float) -> void:
 	if _consumed:
 		return
 	if homing and not hostile:
-		var target := _find_nearest_enemy()
-		if target:
+		# Re-acquire the nearest enemy on a throttle (~12x/sec) and steer toward the cached
+		# target in between. Homing doesn't need a full enemies-group scan every frame —
+		# that was O(projectiles × enemies) at 60Hz, the main slowdown in busy fights.
+		_home_t -= delta
+		if _home_t <= 0.0 or not is_instance_valid(_home_target):
+			_home_t = 0.08
+			_home_target = _find_nearest_enemy()
+		var target := _home_target
+		if target != null and is_instance_valid(target):
 			var to_t: Vector2 = ((target as Node2D).global_position - global_position).normalized()
 			var t_angle: float = to_t.angle()
 			var cur_angle: float = direction.angle()
@@ -66,6 +79,23 @@ func _physics_process(delta: float) -> void:
 			_on_body_entered(hit["collider"])
 			return   # handled (bounced/shoved out or consumed)
 	position += direction * travel
+	# Grid backstop: a fast shot can thread the diagonal slit where two square wall tiles
+	# meet (the ray misses it), or leak onto suburb grass. If we ended up on a NON-floor
+	# cell, bounce or pop right here so projectiles can't pass through the bounds.
+	if _wall_grace <= 0.0:
+		var par := get_parent()
+		if par != null and par.has_method("floor_at_world") and not par.call("floor_at_world", global_position):
+			if _bounces_done < max_bounces:
+				direction = -direction
+				rotation = direction.angle()
+				position += direction * 30.0
+				_wall_grace = 0.08
+				_bounces_done += 1
+				_post_bounce_distance = 0.0
+			else:
+				_consumed = true
+				queue_free()
+			return
 	rotation += spin_speed * delta
 	_age += delta
 	if hostile:
@@ -78,6 +108,32 @@ func _physics_process(delta: float) -> void:
 		_post_bounce_distance += travel
 		if _post_bounce_distance >= max_distance_after_bounce:
 			queue_free()
+
+func _spawn_split_pizzas() -> void:
+	# Burst into N small homing pizzas that seek the next target. They never split
+	# again (_is_split_child) so the chain can't explode exponentially.
+	var par := get_parent()
+	if par == null:
+		return
+	var child_dmg: int = maxi(1, int(round(float(damage) * 0.4)))
+	for i in split_on_hit:
+		var p := PizzaScene.instantiate()
+		p.global_position = global_position
+		var ang: float = TAU * float(i) / float(split_on_hit) + randf() * 0.3
+		p.direction = Vector2.RIGHT.rotated(ang)
+		p.speed = 520.0
+		p.damage = child_dmg
+		p.homing = true
+		p.homing_turn_rate = 9.0
+		p.lifetime = 1.2
+		p.max_bounces = 0
+		p.pierce = 0
+		p.split_on_hit = 0
+		p._is_split_child = true
+		par.add_child(p)
+		var spr := p.get_node_or_null("Sprite") as Sprite2D
+		if spr != null:
+			spr.scale *= 0.5
 
 func _pop_burst() -> void:
 	var ex := ExplosionScene.instantiate()
@@ -164,6 +220,10 @@ func _on_body_entered(body: Node) -> void:
 				body.apply_burn(BURN_DPS, BURN_DURATION)
 			if burst_on_impact:
 				_pop_burst()
+			# Pizza Party capstone: burst into mini homing pizzas on the first hit.
+			if split_on_hit > 0 and not _is_split_child and not _did_split:
+				_did_split = true
+				_spawn_split_pizzas()
 			if pierce > 0:
 				pierce -= 1
 				return  # keep flying

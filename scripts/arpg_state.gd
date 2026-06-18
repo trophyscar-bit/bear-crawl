@@ -94,34 +94,87 @@ const ARCHETYPES := [
 	{"name": "Bouncy Blaster",   "count": 1, "cooldown": 0.26, "speed": 620.0, "dmg": 4,  "color": Color(1, 1, 1), "ball": true, "bounces": 9, "weight": 0.33},
 ]
 
-# ── Heroes (Vampire-Survivors style) ─────────────────────────────────────────
-# Each hero LOCKS IN a primary weapon you keep the whole run (your identity), plus
-# a small passive routed through the existing run-upgrade vars (no new combat
-# plumbing). Floor drops add AUTO-FIRING secondary weapons instead of swapping the
-# primary out from under you.
+# ── Heroes + weapon trees ─────────────────────────────────────────────────────
+# Each hero owns ONE weapon. No drops, no swapping, no multi-weapon. The weapon
+# starts at its base and grows along a BRANCHING tree: at the between-floor shop
+# you first pick one of two PATHS, then advance along it tier by tier.
 const HEROES: Array = [
 	{
-		"id": "finn", "name": "Finn", "weapon": "Pepperoni Slicer",
+		"id": "rupert", "name": "Rupert", "tree": "pizza",
 		"color": Color(1.0, 0.78, 0.42),
-		"blurb": "Nimble all-rounder. +10% move speed.",
-		"passive": {"speed": 0.10},
+		"blurb": "Throws pizzas straight. At the shop, branch into Homing Pie or Extra-Large.",
 	},
 	{
-		"id": "rupert", "name": "Rupert", "weapon": "Bouncy Blaster",
-		"color": Color(0.82, 0.88, 1.0),
-		"blurb": "Chaos bouncer. +15% fire rate fills the room with ricocheting balls.",
-		"passive": {"firerate": 0.15},
-	},
-	{
-		"id": "patch", "name": "Patch", "weapon": "Deep-Dish Cannon",
-		"color": Color(1.0, 0.45, 0.32),
-		"blurb": "Heavy bruiser. +15% damage and +2 HP, but a touch slower.",
-		"passive": {"dmg": 0.15, "maxhp": 2, "speed": -0.08},
+		"id": "finn", "name": "Finn", "tree": "darts",
+		"color": Color(1.0, 0.95, 0.5),
+		"blurb": "Flings fast cheese darts. At the shop, branch into Spray or Lance.",
 	},
 ]
-var hero_id: String = "finn"
-var extra_weapons: Array = []          # secondary AUTO-FIRING weapons (≤ MAX_EXTRA_WEAPONS)
-const MAX_EXTRA_WEAPONS: int = 2
+var hero_id: String = "rupert"
+
+# Per-weapon branching upgrade trees. Each path is a list of TIERS; each tier's
+# `mods` are folded into the weapon when you reach it (multipliers compound). All
+# effects reuse mechanics the projectile already supports (homing, pierce, count,
+# size, fire-rate) plus one new one: `split` (burst into mini homing pizzas on hit).
+const WEAPON_TREES: Dictionary = {
+	"pizza": {
+		"name": "Pizza", "color": Color(1.0, 0.78, 0.42),
+		"proj": "pepperoni", "proj_scale": 0.62,
+		"base": {"dmg": 8.0, "cooldown": 0.34, "speed": 600.0, "count": 1},
+		"paths": {
+			"homing": {
+				"name": "Homing Pie",
+				"blurb": "Pizzas seek the nearest enemy. Shorter range and softer hits, but they never miss.",
+				"tiers": [
+					{"name": "Heat-Seeking Crust", "desc": "Pizzas home to enemies (shorter range, -20% dmg)", "mods": {"homing": true, "turn": 5.5, "dmg_mult": 0.8, "life_mult": 0.7}},
+					{"name": "Hot Pursuit", "desc": "Sharper tracking, longer range, +20% dmg", "mods": {"turn": 8.0, "life_mult": 1.5, "dmg_mult": 1.2}},
+					{"name": "Pizza Party!", "desc": "On hit: burst into 5 mini pizzas that home to the next target", "mods": {"split": 5, "dmg_mult": 1.1}},
+				],
+			},
+			"xl": {
+				"name": "Extra Large",
+				"blurb": "Huge, heavy slices. Big damage, slower throws — they bulldoze through crowds.",
+				"tiers": [
+					{"name": "Extra Large", "desc": "+50% damage, +60% size, slower fire", "mods": {"dmg_mult": 1.5, "size_mult": 1.6, "cd_mult": 1.35}},
+					{"name": "Deep Dish", "desc": "+25% damage, pierces 1 enemy", "mods": {"dmg_mult": 1.25, "pierce": 1}},
+					{"name": "Family Size", "desc": "+40% damage & size, pierces 1 more", "mods": {"dmg_mult": 1.4, "size_mult": 1.3, "pierce": 1}},
+				],
+			},
+		},
+	},
+	"darts": {
+		"name": "Cheese Darts", "color": Color(1.0, 0.95, 0.5),
+		"proj": "cheese", "proj_scale": 0.5,
+		"base": {"dmg": 5.0, "cooldown": 0.2, "speed": 780.0, "count": 1},
+		"paths": {
+			"spray": {
+				"name": "Spray",
+				"blurb": "A storm of fast little darts — wide and relentless, light per hit.",
+				"tiers": [
+					{"name": "Triple Toss", "desc": "+2 darts in a spread (-15% dmg each)", "mods": {"count": 2, "dmg_mult": 0.85}},
+					{"name": "Rapid Fire", "desc": "+30% fire rate, +1 dart", "mods": {"cd_mult": 0.7, "count": 1}},
+					{"name": "Cheese Storm", "desc": "+2 darts, faster fire", "mods": {"count": 2, "cd_mult": 0.85}},
+				],
+			},
+			"lance": {
+				"name": "Lance",
+				"blurb": "One fast spike that skewers a whole line of enemies.",
+				"tiers": [
+					{"name": "Piercing Lance", "desc": "Pierces 2 enemies, +40% damage & speed", "mods": {"pierce": 2, "dmg_mult": 1.4, "speed_mult": 1.2}},
+					{"name": "Skewer", "desc": "Pierces 2 more, +30% damage", "mods": {"pierce": 2, "dmg_mult": 1.3}},
+					{"name": "Railgun", "desc": "Pierces 5 more, big damage & speed", "mods": {"pierce": 5, "dmg_mult": 1.6, "speed_mult": 1.4}},
+				],
+			},
+		},
+	},
+}
+
+# Live tree state for the current run.
+var weapon_tree: String = "pizza"   # which tree the chosen hero uses
+var weapon_path: String = ""        # "" until you pick at the shop; then a path key
+var weapon_tier: int = 0            # how many tiers of the chosen path are applied
+var extra_weapons: Array = []       # kept empty — multi-weapon is disabled
+const MAX_EXTRA_WEAPONS: int = 2    # (legacy; multi-weapon collect path is dead but still compiled)
 
 const WEAPON_MAX_LVL: int = 8
 
@@ -270,20 +323,84 @@ func reset_run() -> void:
 	light_boost = 1
 	enemy_bright = 1
 	backrooms_pack = 5
-	# Hero pick: clear secondary slots, apply the hero passive through existing run
-	# vars, and start with the hero's signature weapon as the manually-aimed primary.
+	# Hero pick: start the hero's weapon tree at its base (no path chosen yet — you
+	# branch at the first shop). No drops, no swapping, no multi-weapon.
 	extra_weapons.clear()
 	var hero: Dictionary = hero_data()
-	var passive: Dictionary = hero.get("passive", {})
-	dmg_mult += float(passive.get("dmg", 0.0))
-	cooldown_mult *= (1.0 - float(passive.get("firerate", 0.0)))
-	speed_mult += float(passive.get("speed", 0.0))
-	bonus_maxhp += int(passive.get("maxhp", 0))
-	crit_chance += float(passive.get("crit", 0.0))
-	weapon = _hero_starter_weapon(hero)
+	weapon_tree = String(hero.get("tree", "pizza"))
+	weapon_path = ""
+	weapon_tier = 0
+	weapon = _build_tree_weapon()
 	Stats.weapon_equipped(String(weapon.get("name", "?")))
 	emit_signal("weapon_changed", weapon)
 	emit_signal("stats_changed")
+
+# ── weapon tree → effective weapon dict ───────────────────────────────────────
+# Builds the weapon the player actually fires: the tree's base stats with every
+# reached tier of the chosen path folded in. Output fields match what player.gd /
+# pizza.gd read (dmg, cooldown, speed, count, pierce, homing, size_mult, split…).
+func _build_tree_weapon() -> Dictionary:
+	var tree: Dictionary = WEAPON_TREES.get(weapon_tree, WEAPON_TREES["pizza"])
+	var base: Dictionary = tree["base"]
+	var w: Dictionary = {
+		"name": String(tree["name"]),
+		"dmg": float(base["dmg"]),
+		"cooldown": float(base["cooldown"]),
+		"speed": float(base["speed"]),
+		"count": int(base["count"]),
+		"pierce": 0,
+		"homing": false,
+		"turn": 5.5,
+		"size_mult": 1.0,
+		"life_mult": 1.0,
+		"speed_mult": 1.0,
+		"split": 0,
+		"color": tree.get("color", Color(1, 1, 1)),
+		"proj": String(tree.get("proj", "")),
+		"proj_scale": float(tree.get("proj_scale", 0.6)),
+		"rarity": 0, "lvl": 1, "maxlvl": WEAPON_MAX_LVL,
+	}
+	if weapon_path != "" and (tree["paths"] as Dictionary).has(weapon_path):
+		var tiers: Array = tree["paths"][weapon_path]["tiers"]
+		for i in mini(weapon_tier, tiers.size()):
+			_apply_tier(w, (tiers[i] as Dictionary).get("mods", {}))
+	w["speed"] = float(w["speed"]) * float(w["speed_mult"])
+	w["score"] = _score(w)
+	return w
+
+func _apply_tier(w: Dictionary, mods: Dictionary) -> void:
+	w["dmg"] = float(w["dmg"]) * float(mods.get("dmg_mult", 1.0))
+	w["cooldown"] = float(w["cooldown"]) * float(mods.get("cd_mult", 1.0))
+	w["count"] = int(w["count"]) + int(mods.get("count", 0))
+	w["pierce"] = int(w["pierce"]) + int(mods.get("pierce", 0))
+	w["size_mult"] = float(w["size_mult"]) * float(mods.get("size_mult", 1.0))
+	w["life_mult"] = float(w["life_mult"]) * float(mods.get("life_mult", 1.0))
+	w["speed_mult"] = float(w["speed_mult"]) * float(mods.get("speed_mult", 1.0))
+	if mods.has("homing"):
+		w["homing"] = bool(mods["homing"])
+	if mods.has("turn"):
+		w["turn"] = float(mods["turn"])
+	w["split"] = maxi(int(w["split"]), int(mods.get("split", 0)))
+
+# Tree introspection used by the shop to offer branch picks.
+func _tree() -> Dictionary:
+	return WEAPON_TREES.get(weapon_tree, WEAPON_TREES["pizza"])
+
+func tree_path_count() -> int:
+	if weapon_path == "":
+		return 0
+	return ((_tree()["paths"][weapon_path]["tiers"]) as Array).size()
+
+func tree_is_maxed() -> bool:
+	return weapon_path != "" and weapon_tier >= tree_path_count()
+
+# Short HUD label: weapon name, plus the chosen path + progress once you've branched.
+func weapon_summary() -> String:
+	var nm: String = String(weapon.get("name", "Weapon"))
+	if weapon_path == "":
+		return nm
+	var pname: String = String((_tree()["paths"][weapon_path] as Dictionary).get("name", weapon_path))
+	return "%s · %s %d/%d" % [nm, pname, weapon_tier, tree_path_count()]
 
 # ── effective combat stats (weapon + run upgrades) ──────────────────────────
 # The *_of(w) variants evaluate an ARBITRARY weapon dict (so the auto-firing
@@ -517,12 +634,8 @@ func notify_kill(pos: Vector2) -> void:
 	gold += g
 	Stats.gold_gained(g)
 	emit_signal("stats_changed")
-	# Loot drop chance (weapons). Lowered hard so the floor isn't paved with free
-	# coins (you could farm-sell trash drops into a full shop by floor 3).
-	if randf() < 0.16:
-		var w: Dictionary = roll_weapon()
-		Stats.weapon_dropped(String(w.get("name", "?")), int(w.get("rarity", 0)))
-		emit_signal("loot_dropped", pos, w)
+	# Weapon drops are DISABLED. Each hero has ONE weapon they upgrade along branching
+	# paths — no floor drops, no swapping, no multi-weapon. (Reverted the loot flood.)
 
 func add_xp(amount: int) -> void:
 	xp += amount
@@ -578,32 +691,45 @@ func boss_hp() -> int:
 # weapon dict directly and bumps its level (so the next one costs more). Swapping
 # weapons starts fresh — invest in the one you want to keep.
 func weapon_upgrade_options() -> Array:
-	# One option now: LEVEL UP the equipped weapon along its fixed path.
-	var lvl: int = int(weapon.get("lvl", 1))
-	if lvl >= WEAPON_MAX_LVL:
-		return []
-	var wcol: Color = weapon.get("color", Color(1.0, 0.8, 0.4))
-	return [{
-		"id": "w_level",
-		"name": "%s  Lv %d" % [String(weapon.get("name", "Weapon")), lvl + 1],
-		"desc": weapon_next_label(),
-		"color": wcol,
-	}]
+	# Branch picks for the hero's single weapon tree. At the FIRST shop you choose a
+	# PATH (two cards); after that you advance one tier at a time (one card). Empty
+	# once the chosen path is fully maxed.
+	var tree: Dictionary = _tree()
+	var paths: Dictionary = tree["paths"]
+	var wcol: Color = tree.get("color", Color(1.0, 0.8, 0.4))
+	var out: Array = []
+	if weapon_path == "":
+		for key in paths.keys():
+			var p: Dictionary = paths[key]
+			var t0: Dictionary = (p["tiers"] as Array)[0]
+			out.append({
+				"id": "branch", "branch_path": String(key),
+				"name": "%s: %s" % [String(p["name"]), String(t0["name"])],
+				"desc": String(p.get("blurb", "")) + "\n→ " + String(t0["desc"]),
+				"color": wcol,
+			})
+	elif not tree_is_maxed():
+		var tiers: Array = paths[weapon_path]["tiers"]
+		var t: Dictionary = tiers[weapon_tier]   # weapon_tier = #applied = index of next tier
+		out.append({
+			"id": "branch", "branch_path": weapon_path,
+			"name": "%s: %s" % [String(paths[weapon_path]["name"]), String(t["name"])],
+			"desc": String(t["desc"]),
+			"color": wcol,
+		})
+	return out
 
 func _weapon_upgrade_cost() -> int:
-	# Scales with the weapon's current level (later levels cost more).
-	var lvl: int = int(weapon.get("lvl", 1))
-	return int(round((18.0 + lvl * 6.0) * (1.0 + 0.15 * float(depth - 1))))
+	# Branch picks cost more as you go deeper into the tree.
+	return int(round((20.0 + weapon_tier * 10.0) * (1.0 + 0.15 * float(depth - 1))))
 
 func generate_shop(_count: int = 5) -> Array:
 	var offers: Array = []
-	# One offer to LEVEL UP the current weapon (badged "WEAPON"), if not maxed.
-	var wopts: Array = weapon_upgrade_options()
-	if not wopts.is_empty():
-		var wo: Dictionary = (wopts[0] as Dictionary).duplicate(true)
+	# Weapon branch offers first (1 advance card, or 2 path cards at the first shop).
+	for wo0 in weapon_upgrade_options():
+		var wo: Dictionary = (wo0 as Dictionary).duplicate(true)
 		wo["weapon_upgrade"] = true
 		wo["cost"] = _weapon_upgrade_cost()
-		wo["weapon_name"] = String(weapon.get("name", "Weapon"))
 		offers.append(wo)
 	# global run upgrades fill the rest.
 	var pool: Array = [
@@ -612,14 +738,14 @@ func generate_shop(_count: int = 5) -> Array:
 		{"id": "firerate",  "name": "Greased Oven",         "desc": "+12% Fire Rate (all)", "color": Color(1.0, 0.85, 0.4)},
 		{"id": "crit",      "name": "Spicy Pepperoni",      "desc": "+7% Crit Chance",   "color": Color(1.0, 0.4, 0.7)},
 		{"id": "speed",     "name": "Roller Skates",        "desc": "+8% Move Speed",     "color": Color(0.5, 0.8, 1.0)},
-		{"id": "weapon",    "name": "New Weapon!",          "desc": "Swap to a different weapon type, auto-scaled to match your current power. Never a downgrade — just a fresh playstyle.", "color": Color(1.0, 0.78, 0.25)},
 	]
 	if crit_chance >= 0.50:   # crit capped — drop the dead "50% → 50%" offer
 		pool = pool.filter(func(c: Dictionary) -> bool: return String(c.get("id", "")) != "crit")
 	if not back_shot and level >= 5:   # gated — it's a build-defining power spike, not a lvl-2 freebie
 		pool.append({"id": "back_shot", "name": "Back Shot", "desc": "Also fire out the back", "color": Color(0.7, 0.5, 1.0)})
 	pool.shuffle()
-	for i in mini(4, pool.size()):
+	var need: int = maxi(0, 5 - offers.size())   # aim for ~5 cards total
+	for i in mini(need, pool.size()):
 		var item: Dictionary = pool[i].duplicate(true)
 		item["cost"] = _shop_cost(String(item["id"]))
 		offers.append(item)
@@ -628,12 +754,21 @@ func generate_shop(_count: int = 5) -> Array:
 # Concrete "current → after" for a shop offer, so the player sees the real effect
 # (not just "+7% Crit"). Returns "" if there's nothing meaningful to show.
 func shop_preview(offer: Dictionary) -> String:
-	# Weapon LEVEL-UP offer — build the actual next-level weapon and compare DPS.
-	if bool(offer.get("weapon_upgrade", false)) or String(offer.get("id", "")) == "w_level":
+	# Weapon BRANCH offer — simulate applying it and compare DPS.
+	if bool(offer.get("weapon_upgrade", false)) or String(offer.get("id", "")) == "branch":
 		var before: Dictionary = weapon_eval(weapon)
-		var arch: Dictionary = _archetype_by_name(String(weapon.get("name", "")))
-		var nxt: Dictionary = _build_weapon(arch, int(weapon.get("lvl", 1)) + 1, int(weapon.get("rarity", 0)))
-		return "DPS  %.0f → %.0f" % [float(before.get("dps", 0.0)), float(weapon_eval(nxt).get("dps", 0.0))]
+		var save_path: String = weapon_path
+		var save_tier: int = weapon_tier
+		var bp: String = String(offer.get("branch_path", ""))
+		if weapon_path == "":
+			weapon_path = bp
+			weapon_tier = 1
+		elif bp == weapon_path and not tree_is_maxed():
+			weapon_tier += 1
+		var after: Dictionary = weapon_eval(_build_tree_weapon())
+		weapon_path = save_path
+		weapon_tier = save_tier
+		return "DPS  %.0f → %.0f" % [float(before.get("dps", 0.0)), float(after.get("dps", 0.0))]
 	match String(offer.get("id", "")):
 		"crit":
 			return "Crit  %d%% → %d%%" % [int(crit_chance * 100.0), int(minf(crit_chance + 0.07, 0.50) * 100.0)]
@@ -674,33 +809,26 @@ func buy(item: Dictionary) -> bool:
 # card screen.
 func apply_upgrade(item: Dictionary) -> void:
 	var id: String = String(item.get("id", ""))
-	if bool(item.get("weapon_upgrade", false)):
-		if id == "w_level":
-			# Rebuild the weapon one level higher along its path.
-			var arch: Dictionary = _archetype_by_name(String(weapon.get("name", "")))
-			weapon = _build_weapon(arch, int(weapon.get("lvl", 1)) + 1, int(weapon.get("rarity", 0)))
-			emit_signal("weapon_changed", weapon)
+	if bool(item.get("weapon_upgrade", false)) or id == "branch":
+		# Advance the weapon tree: pick a path the first time, then step a tier.
+		var bp: String = String(item.get("branch_path", ""))
+		if weapon_path == "":
+			weapon_path = bp
+			weapon_tier = 1
+		elif bp == weapon_path and not tree_is_maxed():
+			weapon_tier += 1
+		weapon = _build_tree_weapon()
+		emit_signal("weapon_changed", weapon)
 		emit_signal("stats_changed")
 		return
 	else:
 		match id:
 			"maxhp":     bonus_maxhp += 4
-			"dmg":       dmg_mult *= 1.10   # true compounding +10% of CURRENT damage (was a flat +10% of BASE, which vanished into rounding at high levels)
+			"dmg":       dmg_mult *= 1.10   # true compounding +10% of CURRENT damage
 			"firerate":  cooldown_mult *= 0.88
-			"crit":      crit_chance = minf(crit_chance + 0.07, 0.50)   # capped at 50% — crit scales too hard unchecked
+			"crit":      crit_chance = minf(crit_chance + 0.07, 0.50)   # capped at 50%
 			"speed":     speed_mult += 0.08
 			"back_shot": back_shot = true
-			"weapon":
-				# Mystery Box: a fresh random weapon TYPE, guaranteed Rare+. Goes into a
-				# free secondary slot (or levels a matching/weakest weapon) — never wipes
-				# your hero's primary.
-				var rolled: Dictionary = roll_weapon()
-				for _try in 8:
-					if int(rolled.get("rarity", 0)) >= 2:
-						break
-					rolled = roll_weapon()
-				var msg: String = collect_weapon(rolled)
-				emit_signal("toast", msg, Color(1.0, 0.8, 0.3))
 	emit_signal("stats_changed")
 
 # Three random upgrade choices shown on level-up (mix of global boons + upgrades
@@ -718,23 +846,9 @@ func level_up_options() -> Array:
 	if not back_shot and level >= 5:   # gated — it's a build-defining power spike, not a lvl-2 freebie
 		pool.append({"id": "back_shot", "name": "Back Shot", "desc": "Also fire backward", "color": Color(0.7, 0.5, 1.0)})
 	pool.shuffle()
-	# The weapon level-up is always offered (when not maxed) as one of the 3 cards.
-	var out: Array = []
-	var wopts: Array = weapon_upgrade_options()
-	if not wopts.is_empty():
-		var w2: Dictionary = (wopts[0] as Dictionary).duplicate(true)
-		w2["weapon_upgrade"] = true
-		out.append(w2)
-		# Don't ALSO offer a global card for the SAME stat the weapon step bumps —
-		# "Weapon +14% Fire Rate" next to "Greased Oven +12% Fire Rate" read as a
-		# redundant double-up.
-		var excl: String = _weapon_step_global_id()
-		var filtered: Array = pool.filter(func(c: Dictionary) -> bool: return String(c.get("id", "")) != excl)
-		out.append_array(filtered.slice(0, 2))
-	else:
-		out.append_array(pool.slice(0, 3))
-	out.shuffle()
-	return out
+	# Level-ups give GLOBAL boons only. Weapon progression happens at the shop (the
+	# branching tree), so the two systems don't step on each other.
+	return pool.slice(0, 3)
 
 # Which global-upgrade id the equipped weapon's NEXT level step overlaps with
 # ("firerate" / "dmg" / "") — used to de-dupe the level-up card choices.

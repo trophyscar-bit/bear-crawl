@@ -414,9 +414,7 @@ func _physics_process(delta: float) -> void:
 	# ARPG mode, ATTACK_RATE otherwise), so holding the button keeps shooting.
 	if Input.is_action_pressed("attack") and attack_cooldown <= 0.0:
 		_throw_pizza()
-	# Auto-firing secondary weapons run on their own timers, hands-free.
-	if ArpgState.active and not ArpgState.extra_weapons.is_empty():
-		_tick_extra_weapons(delta)
+	# Multi-weapon DISABLED — heroes have a single weapon. (extra_weapons stays empty.)
 
 func _throw_pizza() -> void:
 	# ARPG mode: the equipped loot weapon drives fire-rate, spread and stats.
@@ -616,6 +614,21 @@ func _spawn_pizza(dir: Vector2, hostile_flag: bool) -> void:
 		pizza.damage = dmg
 		pizza.speed = float(w.get("speed", 600.0))
 		pizza.pierce = int(w.get("pierce", 0))
+		# Weapon-tree behaviours (Homing Pie / Extra-Large / Pizza Party split).
+		if bool(w.get("homing", false)):
+			pizza.homing = true
+			pizza.homing_turn_rate = float(w.get("turn", 5.5))
+		pizza.lifetime = float(pizza.lifetime) * float(w.get("life_mult", 1.0))
+		pizza.split_on_hit = int(w.get("split", 0))
+		# Extra-Large size: scale both the sprite and the hitbox so big pizzas hit big.
+		var wsize: float = float(w.get("size_mult", 1.0))
+		if wsize != 1.0 and spr != null:
+			spr.scale *= wsize
+			var wc := pizza.get_node_or_null("CollisionShape2D") as CollisionShape2D
+			if wc and wc.shape is CircleShape2D:
+				var wdup := (wc.shape as CircleShape2D).duplicate() as CircleShape2D
+				wdup.radius *= wsize
+				wc.shape = wdup
 		if _range_mult < 1.0:
 			pizza.lifetime = float(pizza.lifetime) * _range_mult   # Back Shot: short rear range
 		if spr != null:

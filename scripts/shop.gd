@@ -13,19 +13,23 @@ func _load_frame_tex() -> void:
 	FrameTex = _ui_tex("res://assets/ui_frame.png")   # robust loader (export-safe)
 
 # ── PARCHMENT theme (design 2) ───────────────────────────────────────────────
-const BG_TOP   := Color(0.185, 0.135, 0.088)
-const BG_BOT   := Color(0.085, 0.058, 0.038)
-const PAPER    := Color(0.925, 0.87, 0.73)    # card fill (cream paper)
-const INK      := Color(0.29, 0.19, 0.086)    # dark-brown name text
-const BR_BORDER:= Color(0.47, 0.32, 0.17)     # card border
-const BR_BTN   := Color(0.59, 0.39, 0.20)     # wood button
-const BR_BTN_B := Color(0.37, 0.24, 0.12)     # button border
-const MUTE     := Color(0.46, 0.34, 0.21)     # muted brown desc
-const CREAM    := Color(1.0, 0.88, 0.59)      # title / cost text
+# Modern Dark theme (matches the title screen): navy bg, dark card surfaces, teal accents.
+const BG_TOP   := Color(0.07, 0.09, 0.14)
+const BG_BOT   := Color(0.035, 0.045, 0.085)
+const PAPER    := Color(0.10, 0.13, 0.18)     # card fill (dark surface)
+const INK      := Color(0.93, 0.97, 1.0)      # light name text
+const BR_BORDER:= Color(0.27, 0.85, 0.74, 0.45)  # teal card border
+const BR_BTN   := Color(0.13, 0.19, 0.23)     # dark button
+const BR_BTN_B := Color(0.27, 0.85, 0.74, 0.6)   # teal button border
+const MUTE     := Color(0.6, 0.68, 0.78)      # cool-grey desc
+const CREAM    := Color(0.45, 0.95, 0.85)     # teal title / cost text
 const GOLD     := CREAM
 const TXT      := INK
 
+const MAX_BUYS: int = 2   # you may only take 2 of the offered upgrades — a real choice, not "buy all"
+var _purchases: int = 0
 var _offers: Array = []
+var _branch_taken: bool = false   # picked a weapon path this visit → lock the other path card
 var _gold_label: Label
 var _buy_buttons: Array[Button] = []
 var _hf: FontFile
@@ -47,16 +51,17 @@ func _font(l: Label, sz: int) -> void:
 func _brown_button(b: Button, sz: int) -> void:
 	# Darker, richer wood so the bright-gold price pops; the cost text also gets a
 	# dark outline so the number is legible at a glance (was gold-on-brown mush).
-	var wood := Color(0.42, 0.26, 0.12)
+	var wood := Color(0.13, 0.19, 0.23)
+	var teal := Color(0.27, 0.85, 0.74)
 	b.add_theme_stylebox_override("normal",   _flat(wood, BR_BTN_B, 2, 9, 8))
-	b.add_theme_stylebox_override("hover",    _flat(wood.lightened(0.12), CREAM.darkened(0.1), 2, 9, 8))
-	b.add_theme_stylebox_override("pressed",  _flat(wood.darkened(0.12), BR_BTN_B, 2, 9, 8))
-	b.add_theme_stylebox_override("focus",    _flat(wood.lightened(0.12), CREAM.darkened(0.1), 2, 9, 8))
-	b.add_theme_stylebox_override("disabled", _flat(Color(0.4, 0.34, 0.26), BR_BTN_B, 1, 9, 8))
-	b.add_theme_color_override("font_color", Color(1.0, 0.86, 0.42))          # bright gold
-	b.add_theme_color_override("font_hover_color", Color(1.0, 0.95, 0.7))
-	b.add_theme_color_override("font_disabled_color", Color(0.7, 0.66, 0.56))
-	b.add_theme_color_override("font_outline_color", Color(0.12, 0.07, 0.03, 0.95))
+	b.add_theme_stylebox_override("hover",    _flat(Color(0.14, 0.24, 0.27), teal, 2, 9, 8))
+	b.add_theme_stylebox_override("pressed",  _flat(wood.darkened(0.12), teal, 2, 9, 8))
+	b.add_theme_stylebox_override("focus",    _flat(Color(0.14, 0.24, 0.27), teal, 2, 9, 8))
+	b.add_theme_stylebox_override("disabled", _flat(Color(0.12, 0.14, 0.18), BR_BTN_B, 1, 9, 8))
+	b.add_theme_color_override("font_color", Color(0.5, 0.95, 0.86))          # teal price
+	b.add_theme_color_override("font_hover_color", Color(0.8, 1.0, 0.95))
+	b.add_theme_color_override("font_disabled_color", Color(0.5, 0.55, 0.62))
+	b.add_theme_color_override("font_outline_color", Color(0.02, 0.05, 0.06, 0.95))
 	b.add_theme_constant_override("outline_size", 5)
 	if _hf != null:
 		b.add_theme_font_override("font", _hf)
@@ -292,8 +297,13 @@ func _hover(card: Control, on: bool) -> void:
 	tw.tween_property(card, "scale", Vector2.ONE * (1.05 if on else 1.0), 0.12)
 
 func _buy(index: int) -> void:
+	if _purchases >= MAX_BUYS:
+		return
 	if ArpgState.buy(_offers[index]):
 		Stats.shop_bought(String(_offers[index].get("id", "?")), int(_offers[index].get("cost", 0)))
+		_purchases += 1
+		if String(_offers[index].get("id", "")) == "branch":
+			_branch_taken = true   # you committed to a path — the other path card locks
 		var b: Button = _buy_buttons[index]
 		# Everything (including the one weapon level-up) sells out per visit.
 		b.text = "✓ SOLD"
@@ -304,11 +314,23 @@ func _buy(index: int) -> void:
 func _refresh() -> void:
 	if _gold_label != null:
 		_gold_label.text = "⛁  %d  gold" % ArpgState.gold
+	var capped: bool = _purchases >= MAX_BUYS
 	for i in _buy_buttons.size():
 		var b: Button = _buy_buttons[i]
 		if b.text == "✓ SOLD":
 			continue
-		b.disabled = ArpgState.gold < int(_offers[i].get("cost", 0))
+		# After committing to a weapon path, lock the OTHER path card (buying it would
+		# do nothing — you can only walk one branch).
+		if _branch_taken and String(_offers[i].get("id", "")) == "branch":
+			b.disabled = true
+			b.text = "— PATH SET —"
+			continue
+		# Once you've taken your 2 picks, the rest lock out — you can't just buy everything.
+		if capped:
+			b.disabled = true
+			b.text = "— LOCKED —"
+		else:
+			b.disabled = ArpgState.gold < int(_offers[i].get("cost", 0))
 
 func _descend() -> void:
 	get_tree().change_scene_to_file(ArpgState.dungeon_path)
